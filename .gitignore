@@ -28,6 +28,7 @@ dist-ssr
 config.ts
 .env
 
+
 # Arquivos de dependências geradas automaticamente
 package-lock.json
 yarn.lock
