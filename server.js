@@ -8,6 +8,8 @@ const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const dbHost = process.env.DB_HOST;
+const dbPort = process.env.DB_PORT;
 
 
 
@@ -21,28 +23,16 @@ const JWT_SECRET = 'root';
 
 
 
-
-const pool = mysql.createPool({
+// Configuração do pool de conexões
+const db = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASS,
   database: process.env.DB_NAME,
-  connectionLimit: 20, // ajuste conforme necessidade
   waitForConnections: true,
-  queueLimit: 0
+  connectionLimit: 10, // Limite máximo de conexões no pool
+  queueLimit: 0 // Sem limite na fila de espera
 });
-
-
-
-
-// // Configuração do MySQL
-// const pool = mysql.createConnection({
-//   host: '127.0.0.1',
-//   user: 'root',
-//   password: 'root',
-//   database: 'justix'
-// });
-
 
 
 // Configuração do Multer para upload de imagens
@@ -104,7 +94,7 @@ const deleteImage = (imagePath) => {
 // ROTAS PARA FÓRUNS
 app.get('/foruns', (req, res) => {
   const sql = 'SELECT * FROM foruns';
-  pool.query(sql, (err, result) => {
+  db.query(sql, (err, result) => {
     if (err) throw err;
     res.send(result);
   });
@@ -119,7 +109,7 @@ app.post('/foruns', upload.single('imagem'), (req, res) => {
   }
 
   const sql = 'INSERT INTO foruns (nome, cidade, estado, endereco, cep, avaliacao_media, imagem) VALUES (?, ?, ?, ?, ?, ?, ?)';
-  pool.query(sql, [nome, cidade, estado, endereco, cep, avaliacao_media, imagem], (err, result) => {
+  db.query(sql, [nome, cidade, estado, endereco, cep, avaliacao_media, imagem], (err, result) => {
     if (err) {
       console.error('Erro ao inserir fórum:', err);
       return res.status(500).send({ error: 'Erro ao inserir fórum' });
@@ -132,7 +122,7 @@ app.put('/foruns/:id', upload.single('imagem'), (req, res) => {
   const id = req.params.id;
   const { nome, cidade, estado, endereco, cep, avaliacao_media } = req.body;
   
-  pool.query('SELECT imagem FROM foruns WHERE id_forum = ?', [id], (err, result) => {
+  db.query('SELECT imagem FROM foruns WHERE id_forum = ?', [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar fórum' });
     }
@@ -147,7 +137,7 @@ app.put('/foruns/:id', upload.single('imagem'), (req, res) => {
       WHERE id_forum = ?
     `;
 
-    pool.query(
+    db.query(
       sql, 
       [nome, cidade, estado, endereco, cep, avaliacao_media, novaImagem, id],
       (err, result) => {
@@ -169,7 +159,7 @@ app.delete('/foruns/:id', (req, res) => {
   const id = req.params.id;
 
   // Primeiro, buscar a imagem do forum
-  pool.query('SELECT imagem FROM foruns WHERE id_forum = ?', [id], (err, result) => {
+  db.query('SELECT imagem FROM foruns WHERE id_forum = ?', [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar forum' });
     }
@@ -177,13 +167,13 @@ app.delete('/foruns/:id', (req, res) => {
     const imagem = result[0]?.imagem;
 
     // Deletar as avaliações associadas
-    pool.query('  FROM av_foruns WHERE id_forum = ?', [id], (err, result) => {
+    db.query('  FROM av_foruns WHERE id_forum = ?', [id], (err, result) => {
       if (err) {
         return res.status(500).send({ error: 'Erro ao deletar avaliações associadas' });
       }
 
       // Deletar o forum
-      pool.query('DELETE FROM foruns WHERE id_forum = ?', [id], (err, result) => {
+      db.query('DELETE FROM foruns WHERE id_forum = ?', [id], (err, result) => {
         if (err) {
           return res.status(500).send({ error: 'Erro ao deletar forum' });
         }
@@ -202,7 +192,7 @@ app.delete('/foruns/:id', (req, res) => {
 app.get('/foruns/:id', (req, res) => {
   const id = req.params.id;
   const sql = 'SELECT * FROM foruns WHERE id_forum = ?';
-  pool.query(sql, [id], (err, result) => {
+  db.query(sql, [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar forum' });
     }
@@ -216,7 +206,7 @@ app.get('/foruns/:id', (req, res) => {
 // ROTAS PARA TRIBUNAIS
 app.get('/tribunais', (req, res) => {
   const sql = 'SELECT * FROM tribunais';
-  pool.query(sql, (err, result) => {
+  db.query(sql, (err, result) => {
     if (err) throw err;
     res.send(result);
   });
@@ -224,7 +214,7 @@ app.get('/tribunais', (req, res) => {
 
 app.get('/tokens', (req, res) => {
   const sql = 'SELECT * FROM user_tokens';
-  pool.query(sql, (err, result) => {
+  db.query(sql, (err, result) => {
     if (err) throw err;
     res.send(result);
   });
@@ -233,7 +223,7 @@ app.get('/tokens', (req, res) => {
 app.get('/tribunais/:id', (req, res) => {
   const id = req.params.id;
   const sql = 'SELECT * FROM tribunais WHERE id_tribunal = ?';
-  pool.query(sql, [id], (err, result) => {
+  db.query(sql, [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar tribunal' });
     }
@@ -255,7 +245,7 @@ app.post('/tribunais', upload.single('imagem'), (req, res) => {
   }
 
   const sql = 'INSERT INTO tribunais (nome, cidade, estado, endereco, cep, avaliacao_media, imagem) VALUES (?, ?, ?, ?, ?, ?, ?)';
-  pool.query(sql, [nome, cidade, estado, endereco, cep, avaliacao_media, imagem], (err, result) => {
+  db.query(sql, [nome, cidade, estado, endereco, cep, avaliacao_media, imagem], (err, result) => {
     if (err) {
       console.error('Erro ao inserir tribunal:', err);
       return res.status(500).send({ error: 'Erro ao inserir tribunal' });
@@ -268,7 +258,7 @@ app.put('/tribunais/:id', upload.single('imagem'), (req, res) => {
   const id = req.params.id;
   const { nome, cidade, estado, endereco, cep, avaliacao_media } = req.body;
   
-  pool.query('SELECT imagem FROM tribunais WHERE id_tribunal = ?', [id], (err, result) => {
+  db.query('SELECT imagem FROM tribunais WHERE id_tribunal = ?', [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar tribunal' });
     }
@@ -283,7 +273,7 @@ app.put('/tribunais/:id', upload.single('imagem'), (req, res) => {
       WHERE id_tribunal = ?
     `;
 
-    pool.query(
+    db.query(
       sql, 
       [nome, cidade, estado, endereco, cep, avaliacao_media, novaImagem, id],
       (err, result) => {
@@ -305,7 +295,7 @@ app.delete('/tribunais/:id', (req, res) => {
   const id = req.params.id;
 
   // Primeiro, buscar a imagem do tribunal
-  pool.query('SELECT imagem FROM tribunais WHERE id_tribunal = ?', [id], (err, result) => {
+  db.query('SELECT imagem FROM tribunais WHERE id_tribunal = ?', [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar tribunal' });
     }
@@ -313,13 +303,13 @@ app.delete('/tribunais/:id', (req, res) => {
     const imagem = result[0]?.imagem;
 
     // Deletar as avaliações associadas
-    pool.query('DELETE FROM av_tribunais WHERE id_tribunal = ?', [id], (err, result) => {
+    db.query('DELETE FROM av_tribunais WHERE id_tribunal = ?', [id], (err, result) => {
       if (err) {
         return res.status(500).send({ error: 'Erro ao deletar avaliações associadas' });
       }
 
       // Deletar o tribunal
-      pool.query('DELETE FROM tribunais WHERE id_tribunal = ?', [id], (err, result) => {
+      db.query('DELETE FROM tribunais WHERE id_tribunal = ?', [id], (err, result) => {
         if (err) {
           return res.status(500).send({ error: 'Erro ao deletar tribunal' });
         }
@@ -338,7 +328,7 @@ app.delete('/tribunais/:id', (req, res) => {
 // ROTAS PARA JUIZ
 app.get('/juiz', (req, res) => {
   const sql = 'SELECT * FROM juiz';
-  pool.query(sql, (err, result) => {
+  db.query(sql, (err, result) => {
     if (err) throw err;
     res.send(result);
   });
@@ -347,7 +337,7 @@ app.get('/juiz', (req, res) => {
 app.get('/juiz/:id', (req, res) => {
   const id = req.params.id;
   const sql = 'SELECT * FROM juiz WHERE id_juiz = ?';
-  pool.query(sql, [id], (err, result) => {
+  db.query(sql, [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar juiz' });
     }
@@ -367,7 +357,7 @@ app.post('/juiz', upload.single('imagem'), (req, res) => {
   }
 
   const sql = 'INSERT INTO juiz (nome, tempo_servico, casos_julgados, avaliacao_media, imagem) VALUES (?, ?, ?, ?, ?)';
-  pool.query(sql, [nome, tempo_servico, casos_julgados, avaliacao_media, imagem], (err, result) => {
+  db.query(sql, [nome, tempo_servico, casos_julgados, avaliacao_media, imagem], (err, result) => {
     if (err) {
       console.error('Erro ao inserir juiz:', err);
       return res.status(500).send({ error: 'Erro ao inserir juiz' });
@@ -380,7 +370,7 @@ app.put('/juiz/:id', upload.single('imagem'), (req, res) => {
   const id = req.params.id;
   const { nome, tempo_servico, casos_julgados, avaliacao_media } = req.body;
   
-  pool.query('SELECT imagem FROM juiz WHERE id_juiz = ?', [id], (err, result) => {
+  db.query('SELECT imagem FROM juiz WHERE id_juiz = ?', [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar juiz' });
     }
@@ -395,7 +385,7 @@ app.put('/juiz/:id', upload.single('imagem'), (req, res) => {
       WHERE id_juiz = ?
     `;
 
-    pool.query(
+    db.query(
       sql, 
       [nome, tempo_servico, casos_julgados, avaliacao_media, novaImagem, id],
       (err, result) => {
@@ -417,7 +407,7 @@ app.delete('/juiz/:id', (req, res) => {
   const id = req.params.id;
 
   // Primeiro, buscar a imagem do juiz
-  pool.query('SELECT imagem FROM juiz WHERE id_juiz = ?', [id], (err, result) => {
+  db.query('SELECT imagem FROM juiz WHERE id_juiz = ?', [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar juiz' });
     }
@@ -425,13 +415,13 @@ app.delete('/juiz/:id', (req, res) => {
     const imagem = result[0]?.imagem;
 
     // Deletar as avaliações associadas
-    pool.query('DELETE FROM av_juiz WHERE id_juiz = ?', [id], (err, result) => {
+    db.query('DELETE FROM av_juiz WHERE id_juiz = ?', [id], (err, result) => {
       if (err) {
         return res.status(500).send({ error: 'Erro ao deletar avaliações associadas' });
       }
 
       // Deletar o juiz
-      pool.query('DELETE FROM juiz WHERE id_juiz = ?', [id], (err, result) => {
+      db.query('DELETE FROM juiz WHERE id_juiz = ?', [id], (err, result) => {
         if (err) {
           return res.status(500).send({ error: 'Erro ao deletar juiz' });
         }
@@ -450,7 +440,7 @@ app.delete('/juiz/:id', (req, res) => {
 // ROTAS PARA MEDIADOR
 app.get('/mediador', (req, res) => {
   const sql = 'SELECT * FROM mediador';
-  pool.query(sql, (err, result) => {
+  db.query(sql, (err, result) => {
     if (err) throw err;
     res.send(result);
   });
@@ -459,7 +449,7 @@ app.get('/mediador', (req, res) => {
 app.get('/mediador/:id', (req, res) => {
   const id = req.params.id;
   const sql = 'SELECT * FROM mediador WHERE id_mediador = ?';
-  pool.query(sql, [id], (err, result) => {
+  db.query(sql, [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar mediador' });
     }
@@ -480,7 +470,7 @@ app.post('/mediador', upload.single('imagem'), (req, res) => {
   }
 
   const sql = 'INSERT INTO mediador (nome, estado, avaliacao_media, imagem) VALUES (?, ?, ?, ?)';
-  pool.query(sql, [nome, estado, avaliacao_media, imagem], (err, result) => {
+  db.query(sql, [nome, estado, avaliacao_media, imagem], (err, result) => {
     if (err) {
       console.error('Erro ao inserir mediador:', err);
       return res.status(500).send({ error: 'Erro ao inserir mediador' });
@@ -493,7 +483,7 @@ app.put('/mediador/:id', upload.single('imagem'), (req, res) => {
   const id = req.params.id;
   const { nome, estado, avaliacao_media } = req.body;
   
-  pool.query('SELECT imagem FROM mediador WHERE id_mediador = ?', [id], (err, result) => {
+  db.query('SELECT imagem FROM mediador WHERE id_mediador = ?', [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar mediador' });
     }
@@ -507,7 +497,7 @@ app.put('/mediador/:id', upload.single('imagem'), (req, res) => {
       WHERE id_mediador = ?
     `;
 
-    pool.query(
+    db.query(
       sql, 
       [nome, estado, avaliacao_media, novaImagem, id],
       (err, result) => {
@@ -529,7 +519,7 @@ app.delete('/mediador/:id', (req, res) => {
   const id = req.params.id;
 
   // Primeiro, buscar a imagem do mediador
-  pool.query('SELECT imagem FROM mediador WHERE id_mediador = ?', [id], (err, result) => {
+  db.query('SELECT imagem FROM mediador WHERE id_mediador = ?', [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar mediador' });
     }
@@ -537,13 +527,13 @@ app.delete('/mediador/:id', (req, res) => {
     const imagem = result[0]?.imagem;
 
     // Deletar as avaliações associadas
-    pool.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id], (err, result) => {
+    db.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id], (err, result) => {
       if (err) {
         return res.status(500).send({ error: 'Erro ao deletar avaliações associadas' });
       }
 
       // Deletar o mediador
-      pool.query('DELETE FROM mediador WHERE id_mediador = ?', [id], (err, result) => {
+      db.query('DELETE FROM mediador WHERE id_mediador = ?', [id], (err, result) => {
         if (err) {
           return res.status(500).send({ error: 'Erro ao deletar mediador' });
         }
@@ -563,7 +553,7 @@ app.delete('/mediador/:id', (req, res) => {
 // GET all advogados
 app.get('/advocacia', (req, res) => {
   const sql = 'SELECT * FROM advocacia';
-  pool.query(sql, (err, result) => {
+  db.query(sql, (err, result) => {
     if (err) throw err;
     res.send(result);
   });
@@ -572,7 +562,7 @@ app.get('/advocacia', (req, res) => {
 app.get('/advocacia/:id', (req, res) => {
   const id = req.params.id;
   const sql = 'SELECT * FROM advocacia WHERE id_advocacia = ?';
-  pool.query(sql, [id], (err, result) => {
+  db.query(sql, [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar advocacia' });
     }
@@ -614,7 +604,7 @@ app.post('/advocacia', upload.single('imagem'), (req, res) => {
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `;
 
-  pool.query(
+  db.query(
     sql, 
     [
       nome, 
@@ -650,7 +640,7 @@ app.put('/advocacia/:id', upload.single('imagem'), (req, res) => {
     return res.status(400).send({ error: 'Avaliação média deve ser um número entre 0 e 10' });
   }
 
-  pool.query('SELECT imagem FROM advocacia WHERE id_advocacia = ?', [id], (err, result) => {
+  db.query('SELECT imagem FROM advocacia WHERE id_advocacia = ?', [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar advogado' });
     }
@@ -670,7 +660,7 @@ app.put('/advocacia/:id', upload.single('imagem'), (req, res) => {
       WHERE id_advocacia = ?
     `;
 
-    pool.query(
+    db.query(
       sql, 
       [
         nome, 
@@ -706,7 +696,7 @@ app.get('/advocacia/profissao/:profissao', (req, res) => {
   const profissao = req.params.profissao;
   const sql = 'SELECT * FROM advocacia WHERE profissao = ?';
   
-  pool.query(sql, [profissao], (err, result) => {
+  db.query(sql, [profissao], (err, result) => {
     if (err) {
       console.error('Erro ao buscar por profissão:', err);
       return res.status(500).send({ error: 'Erro ao buscar por profissão' });
@@ -719,7 +709,7 @@ app.delete('/advocacia/:id', (req, res) => {
   const id = req.params.id;
 
   // Primeiro, buscar a imagem do advocacia
-  pool.query('SELECT imagem FROM advocacia WHERE id_advocacia = ?', [id], (err, result) => {
+  db.query('SELECT imagem FROM advocacia WHERE id_advocacia = ?', [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar advocacia' });
     }
@@ -727,13 +717,13 @@ app.delete('/advocacia/:id', (req, res) => {
     const imagem = result[0]?.imagem;
 
     // Deletar as avaliações associadas
-    pool.query('DELETE FROM av_advocacia WHERE id_advocacia = ?', [id], (err, result) => {
+    db.query('DELETE FROM av_advocacia WHERE id_advocacia = ?', [id], (err, result) => {
       if (err) {
         return res.status(500).send({ error: 'Erro ao deletar avaliações associadas' });
       }
 
       // Deletar o advocacia
-      pool.query('DELETE FROM advocacia WHERE id_advocacia = ?', [id], (err, result) => {
+      db.query('DELETE FROM advocacia WHERE id_advocacia = ?', [id], (err, result) => {
         if (err) {
           return res.status(500).send({ error: 'Erro ao deletar advocacia' });
         }
@@ -752,7 +742,7 @@ app.delete('/advocacia/:id', (req, res) => {
 
 app.get('/portais', (req, res) => {
   const sql = 'SELECT id_portal, nome, url, imagem, avaliacao_media FROM portal';
-  pool.query(sql, (err, result) => {
+  db.query(sql, (err, result) => {
     if (err) {
       console.error('Erro ao buscar portais:', err);
       return res.status(500).send({ error: 'Erro ao buscar portais', details: err.message });
@@ -766,7 +756,7 @@ app.get('/portais', (req, res) => {
 app.get('/portais/:id', (req, res) => {
   const id = req.params.id;
   const sql = 'SELECT * FROM portal WHERE id_portal = ?';
-  pool.query(sql, [id], (err, result) => {
+  db.query(sql, [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar portal' });
     }
@@ -817,7 +807,7 @@ app.post('/portais', upload.single('imagem'), (req, res) => {
   console.log('SQL:', sql);
   console.log('Valores:', values);
 
-  pool.query(sql, values, (err, result) => {
+  db.query(sql, values, (err, result) => {
     if (err) {
       console.error('Erro ao inserir portal:', err);
       if (req.file) {
@@ -832,7 +822,7 @@ app.post('/portais', upload.single('imagem'), (req, res) => {
     }
 
     // Buscar o registro recém-inserido para confirmar
-    pool.query('SELECT * FROM portal WHERE id_portal = ?', [result.insertId], (err, selectResult) => {
+    db.query('SELECT * FROM portal WHERE id_portal = ?', [result.insertId], (err, selectResult) => {
       if (err) {
         console.error('Erro ao buscar portal inserido:', err);
         return res.status(500).send({ 
@@ -866,7 +856,7 @@ app.put('/portais/:id', upload.single('imagem'), (req, res) => {
   }
   
   // Primeiro, verificar se o portal existe
-  pool.query('SELECT * FROM portal WHERE id_portal = ?', [id], (err, result) => {
+  db.query('SELECT * FROM portal WHERE id_portal = ?', [id], (err, result) => {
     if (err) {
       console.error('Erro ao buscar portal:', err);
       return res.status(500).send({ 
@@ -914,7 +904,7 @@ app.put('/portais/:id', upload.single('imagem'), (req, res) => {
     console.log('SQL de atualização:', sql);
     console.log('Valores de atualização:', updateValues);
 
-    pool.query(sql, updateValues, (updateErr, updateResult) => {
+    db.query(sql, updateValues, (updateErr, updateResult) => {
       if (updateErr) {
         console.error('Erro ao atualizar portal:', updateErr);
         if (req.file) {
@@ -939,7 +929,7 @@ app.put('/portais/:id', upload.single('imagem'), (req, res) => {
       }
 
       // Buscar o registro atualizado para confirmar
-      pool.query('SELECT * FROM portal WHERE id_portal = ?', [id], (err, finalResult) => {
+      db.query('SELECT * FROM portal WHERE id_portal = ?', [id], (err, finalResult) => {
         if (err) {
           console.error('Erro ao buscar portal atualizado:', err);
           return res.status(500).send({ 
@@ -966,7 +956,7 @@ app.get('/portais/search', (req, res) => {
 
   const values = [`%${searchTerm}%`, `%${searchTerm}%`];
 
-  pool.query(sql, values, (err, result) => {
+  db.query(sql, values, (err, result) => {
     if (err) {
       console.error('Erro ao buscar portais:', err);
       return res.status(500).send({ error: 'Erro ao buscar portais' });
@@ -979,7 +969,7 @@ app.delete('/portais/:id', (req, res) => {
   const id = req.params.id;
 
   // Primeiro, buscar a imagem do portal
-  pool.query('SELECT imagem FROM portal WHERE id_portal = ?', [id], (err, result) => {
+  db.query('SELECT imagem FROM portal WHERE id_portal = ?', [id], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao buscar portal' });
     }
@@ -987,13 +977,13 @@ app.delete('/portais/:id', (req, res) => {
     const imagem = result[0]?.imagem;
 
     // Deletar as avaliações associadas
-    pool.query('DELETE FROM av_portal WHERE id_portal = ?', [id], (err, result) => {
+    db.query('DELETE FROM av_portal WHERE id_portal = ?', [id], (err, result) => {
       if (err) {
         return res.status(500).send({ error: 'Erro ao deletar avaliações associadas' });
       }
 
       // Deletar o portal
-      pool.query('DELETE FROM portal WHERE id_portal = ?', [id], (err, result) => {
+      db.query('DELETE FROM portal WHERE id_portal = ?', [id], (err, result) => {
         if (err) {
           return res.status(500).send({ error: 'Erro ao deletar portal' });
         }
@@ -1017,7 +1007,7 @@ app.delete('/portais/:id', (req, res) => {
 
 app.get('/usuarios', (req, res) => {
   const sql = 'SELECT * FROM usuarios';
-  pool.query(sql, (err, result) => {
+  db.query(sql, (err, result) => {
     if (err) throw err;
     res.send(result);
   });
@@ -1035,7 +1025,7 @@ app.post('/usuarios', async (req, res) => {
 
   // Verificar se o usuário já existe
   const sqlCheck = 'SELECT * FROM usuarios WHERE cpf = ? OR email = ?';
-  pool.query(sqlCheck, [cpf, email], async (err, result) => {
+  db.query(sqlCheck, [cpf, email], async (err, result) => {
     if (err) {
       console.error('Erro na verificação de usuário existente:', err); // Log de erro
       return res.status(500).send({ error: 'Erro no servidor' });
@@ -1051,7 +1041,7 @@ app.post('/usuarios', async (req, res) => {
 
       // Inserir usuário
       const sql = 'INSERT INTO usuarios (cpf, nome, email, senha, telefone) VALUES (?, ?, ?, ?, ?)';
-      pool.query(sql, [cpf, nome, email, hashedSenha, telefone], (err, result) => {
+      db.query(sql, [cpf, nome, email, hashedSenha, telefone], (err, result) => {
         if (err) {
           console.error('Erro ao inserir usuário:', err); // Log de erro na inserção
           return res.status(500).send({ error: 'Erro ao cadastrar usuário' });
@@ -1071,7 +1061,7 @@ app.get('/api/usuario/:id', (req, res) => {
   const userId = req.params.id;
 
   const sql = 'SELECT id_usuario, nome, email, role FROM usuarios WHERE id_usuario = ?';
-  pool.query(sql, [userId], (err, result) => {
+  db.query(sql, [userId], (err, result) => {
     if (err) {
       console.error('Erro ao buscar dados do usuário:', err);
       return res.status(500).send({ error: 'Erro interno do servidor' });
@@ -1098,7 +1088,7 @@ app.post('/login', async (req, res) => {
 
       const sql = 'SELECT * FROM usuarios WHERE email = ?';
       
-      pool.query(sql, [email], async (err, result) => {
+      db.query(sql, [email], async (err, result) => {
           if (err) {
               console.error('Erro na consulta:', err);
               return res.status(500).json({ error: 'Erro no servidor' });
@@ -1204,7 +1194,7 @@ const authorize = (roles = []) => {
 //   }
 
 //   try {
-//     await pool.promise().query(
+//     await db.promise().query(
 //       'INSERT INTO av_foruns (id_usuario, id_forum, numero_protocolo, comentario, avaliacao, horario_chegada, horario_saida) VALUES (?, ?, ?, ?, ?, ?, ?)',
 //       [id_usuario, id_forum, numero_protocolo, comentario || null, avaliacao, horario_chegada || null, horario_saida || null]
 //     );
@@ -1245,7 +1235,7 @@ app.post('/av_foruns', async (req, res) => {
   }
 
   try {
-    await pool.promise().query(
+    await db.promise().query(
       `INSERT INTO av_foruns (
         id_usuario, id_forum, numero_protocolo, comentario,
         av_atendimento, av_organizacao, av_digital,
@@ -1270,7 +1260,7 @@ app.post('/av_foruns', async (req, res) => {
 
 // app.get('/foruns_avaliacao/:id_forum', async (req, res) => {
 //   try {
-//     const [resultado] = await pool.promise().query(
+//     const [resultado] = await db.promise().query(
 //       'SELECT ROUND(AVG(avaliacao),2) AS media_avaliacao FROM av_foruns WHERE id_forum = ?',
 //       [req.params.id_forum]
 //     );
@@ -1283,7 +1273,7 @@ app.post('/av_foruns', async (req, res) => {
 
 app.get('/foruns_avaliacao/:id_forum', async (req, res) => {
   try {
-    const [resultado] = await pool.promise().query(
+    const [resultado] = await db.promise().query(
       'CALL CalcularMediaPonderadaForum(?)',
       [req.params.id_forum]
     );
@@ -1298,7 +1288,7 @@ app.get('/foruns_avaliacao/:id_forum', async (req, res) => {
 
 app.get('/av_foruns', (req, res) => {
   const sql = 'SELECT * FROM av_foruns';
-  pool.query(sql, (err, result) => {
+  db.query(sql, (err, result) => {
     if (err) throw err;
     res.send(result);
   });
@@ -1308,7 +1298,7 @@ app.get('/av_foruns', (req, res) => {
 // Rota com parâmetro: /av_foruns/1 (onde 1 é o id_forum)
 app.get('/av_foruns/:id_forum', (req, res) => {
   const sql = 'SELECT * FROM av_foruns WHERE id_forum = ?';
-  pool.query(sql, [req.params.id_forum], (err, result) => {
+  db.query(sql, [req.params.id_forum], (err, result) => {
     if (err) {
       res.status(500).json({ error: err.message });
       return;
@@ -1319,7 +1309,7 @@ app.get('/av_foruns/:id_forum', (req, res) => {
 
 app.delete('/foruns_avaliacao/:id_forum', (req, res) => {
   const id_forum = req.params.id_forum;
-  pool.query('DELETE FROM av_foruns WHERE id_forum = ?', [id_forum], (err, result) => {
+  db.query('DELETE FROM av_foruns WHERE id_forum = ?', [id_forum], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
     }
@@ -1328,7 +1318,7 @@ app.delete('/foruns_avaliacao/:id_forum', (req, res) => {
 });
 app.delete('/av_foruns/:id_forum', (req, res) => {
   const id_forum = req.params.id_forum;
-  pool.query('DELETE FROM av_foruns WHERE id_forum = ?', [id_forum], (err, result) => {
+  db.query('DELETE FROM av_foruns WHERE id_forum = ?', [id_forum], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
     }
@@ -1339,7 +1329,7 @@ app.delete('/av_foruns/:id_forum', (req, res) => {
 app.get('/foruns_avaliacao_usuario/:id_forum/:id_usuario', async (req, res) => {
   try {
     // Buscar as avaliações individuais do usuário
-    const [avaliacoes] = await pool.promise().query(
+    const [avaliacoes] = await db.promise().query(
       `SELECT 
         av_atendimento,
         av_organizacao,
@@ -1407,7 +1397,7 @@ app.get('/foruns_avaliacao_usuario/:id_forum/:id_usuario', async (req, res) => {
 //   }
 
 //   try {
-//     await pool.promise().query(
+//     await db.promise().query(
 //       'INSERT INTO av_tribunais (id_usuario, id_tribunal, numero_protocolo, comentario, avaliacao, horario_chegada, horario_saida) VALUES (?, ?, ?, ?, ?, ?, ?)',
 //       [id_usuario, id_tribunal, numero_protocolo, comentario || null, avaliacao, horario_chegada || null, horario_saida || null]
 //     );
@@ -1451,7 +1441,7 @@ app.post('/av_tribunais', async (req, res) => {
   }
 
   try {
-    await pool.promise().query(
+    await db.promise().query(
       `INSERT INTO av_tribunais (
         id_usuario, id_tribunal, numero_protocolo, comentario,
         av_eficiencia, av_qualidade, av_infraestrutura,
@@ -1474,7 +1464,7 @@ app.post('/av_tribunais', async (req, res) => {
 
 // app.get('/tribunais_avaliacao/:id_tribunal', async (req, res) => {
 //   try {
-//     const [resultado] = await pool.promise().query(
+//     const [resultado] = await db.promise().query(
 //       'SELECT ROUND(AVG(avaliacao),2) AS media_avaliacao FROM av_tribunais WHERE id_tribunal = ?',
 //       [req.params.id_tribunal]
 //     );
@@ -1487,7 +1477,7 @@ app.post('/av_tribunais', async (req, res) => {
 
 app.get('/tribunais_avaliacao/:id_tribunal', async (req, res) => {
   try {
-    const [resultado] = await pool.promise().query(
+    const [resultado] = await db.promise().query(
       'CALL CalcularMediaPonderadaTribunal(?)',
       [req.params.id_tribunal]
     );
@@ -1502,7 +1492,7 @@ app.get('/tribunais_avaliacao/:id_tribunal', async (req, res) => {
 
 app.get('/av_tribunais', (req, res) => {
   const sql = 'SELECT * FROM av_tribunais';
-  pool.query(sql, (err, result) => {
+  db.query(sql, (err, result) => {
     if (err) throw err;
     res.send(result);
   });
@@ -1512,7 +1502,7 @@ app.get('/av_tribunais', (req, res) => {
 // Rota com parâmetro: /av_foruns/1 (onde 1 é o id_forum)
 // app.get('/av_tribunais/:id_tribunal', (req, res) => {
 //   const sql = 'SELECT * FROM av_tribunais WHERE id_tribunal = ?';
-//   pool.query(sql, [req.params.id_tribunal], (err, result) => {
+//   db.query(sql, [req.params.id_tribunal], (err, result) => {
 //     if (err) {
 //       res.status(500).json({ error: err.message });
 //       return;
@@ -1523,7 +1513,7 @@ app.get('/av_tribunais', (req, res) => {
 
 app.get('/av_tribunais/:id_tribunal', async (req, res) => {
   try {
-    const [resultado] = await pool.promise().query(
+    const [resultado] = await db.promise().query(
       'SELECT * FROM av_tribunais WHERE id_tribunal = ?',
       [req.params.id_tribunal]
     );
@@ -1536,7 +1526,7 @@ app.get('/av_tribunais/:id_tribunal', async (req, res) => {
 
 app.delete('/tribunais_avaliacao/:id_tribunal', (req, res) => {
   const id_tribunal = req.params.id_tribunal;
-  pool.query('DELETE FROM av_tribunais WHERE id_tribunal = ?', [id_tribunal], (err, result) => {
+  db.query('DELETE FROM av_tribunais WHERE id_tribunal = ?', [id_tribunal], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
     }
@@ -1545,7 +1535,7 @@ app.delete('/tribunais_avaliacao/:id_tribunal', (req, res) => {
 });
 // app.delete('/av_tribunais/:id_tribunal', (req, res) => {
 //   const id_tribunal = req.params.id_tribunal;
-//   pool.query('DELETE FROM av_tribunais WHERE id_tribunal = ?', [id_tribunal], (err, result) => {
+//   db.query('DELETE FROM av_tribunais WHERE id_tribunal = ?', [id_tribunal], (err, result) => {
 //     if (err) {
 //       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
 //     }
@@ -1555,7 +1545,7 @@ app.delete('/tribunais_avaliacao/:id_tribunal', (req, res) => {
 
 app.delete('/av_tribunais/:id_tribunal', async (req, res) => {
   try {
-    await pool.promise().query(
+    await db.promise().query(
       'DELETE FROM av_tribunais WHERE id_tribunal = ?',
       [req.params.id_tribunal]
     );
@@ -1569,7 +1559,7 @@ app.delete('/av_tribunais/:id_tribunal', async (req, res) => {
 app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res) => {
   try {
     // Buscar todas as avaliações do usuário para o tribunal
-    const [avaliacoes] = await pool.promise().query(
+    const [avaliacoes] = await db.promise().query(
       `SELECT 
         av_eficiencia,
         av_qualidade,
@@ -1639,7 +1629,7 @@ app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res
 //     const mediaGeral = somaAvaliacoes / somaPesos;
 
 //     // Inserir nova avaliação com a média calculada
-//     await pool.promise().query(
+//     await db.promise().query(
 //       `INSERT INTO av_tribunais (id_tribunal, id_usuario, av_eficiencia, av_qualidade, av_infraestrutura, av_tecnologia, av_gestao, av_transparencia, av_sustentabilidade, media_geral, data_criacao)
 //       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
 //       [id_tribunal, id_usuario, av_eficiencia, av_qualidade, av_infraestrutura, av_tecnologia, av_gestao, av_transparencia, av_sustentabilidade, parseFloat(mediaGeral.toFixed(2))]
@@ -1654,7 +1644,7 @@ app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res
 
 // app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res) => {
 //   try {
-//     const [avaliacoes] = await pool.promise().query(
+//     const [avaliacoes] = await db.promise().query(
 //       `SELECT media_geral 
 //        FROM av_tribunais 
 //        WHERE id_tribunal = ? AND id_usuario = ?
@@ -1694,7 +1684,7 @@ app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res
 //   }
 
 //   try {
-//     await pool.promise().query(
+//     await db.promise().query(
 //       'INSERT INTO av_juiz (id_usuario, id_juiz, numero_protocolo, comentario, avaliacao, horario_chegada, horario_saida) VALUES (?, ?, ?, ?, ?, ?, ?)',
 //       [id_usuario, id_juiz, numero_protocolo, comentario || null, avaliacao, horario_chegada || null, horario_saida || null]
 //     );
@@ -1739,7 +1729,7 @@ app.post('/av_juiz', async (req, res) => {
   }
 
   try {
-    await pool.promise().query(
+    await db.promise().query(
       `INSERT INTO av_juiz (
         id_usuario, id_juiz, numero_processo, comentario,
         av_produtividade, av_fundamentacao, av_pontualidade,
@@ -1763,7 +1753,7 @@ app.post('/av_juiz', async (req, res) => {
 
 // app.get('/juiz_avaliacao/:id_juiz', async (req, res) => {
 //   try {
-//     const [resultado] = await pool.promise().query(
+//     const [resultado] = await db.promise().query(
 //       'SELECT ROUND(AVG(avaliacao),2) AS media_avaliacao FROM av_juiz WHERE id_juiz = ?',
 //       [req.params.id_juiz]
 //     );
@@ -1775,7 +1765,7 @@ app.post('/av_juiz', async (req, res) => {
 // });
 // app.get('/av_juiz', (req, res) => {
 //   const sql = 'SELECT * FROM av_juiz';
-//   pool.query(sql, (err, result) => {
+//   db.query(sql, (err, result) => {
 //     if (err) throw err;
 //     res.send(result);
 //   });
@@ -1783,7 +1773,7 @@ app.post('/av_juiz', async (req, res) => {
 
 app.get('/juiz_avaliacao/:id_juiz', async (req, res) => {
   try {
-    const [resultado] = await pool.promise().query(
+    const [resultado] = await db.promise().query(
       'CALL CalcularMediaPonderadaJuiz(?)',
       [req.params.id_juiz]
     );
@@ -1799,7 +1789,7 @@ app.get('/juiz_avaliacao/:id_juiz', async (req, res) => {
 // Rota com parâmetro: /av_foruns/1 (onde 1 é o id_forum)
 app.get('/av_juiz/:id_juiz', (req, res) => {
   const sql = 'SELECT * FROM av_juiz WHERE id_juiz = ?';
-  pool.query(sql, [req.params.id_juiz], (err, result) => {
+  db.query(sql, [req.params.id_juiz], (err, result) => {
     if (err) {
       res.status(500).json({ error: err.message });
       return;
@@ -1810,7 +1800,7 @@ app.get('/av_juiz/:id_juiz', (req, res) => {
 
 app.delete('/juiz_avaliacao/:id_juiz', (req, res) => {
   const id_juiz = req.params.id_juiz;
-  pool.query('DELETE FROM av_juiz WHERE id_juiz = ?', [id_juiz], (err, result) => {
+  db.query('DELETE FROM av_juiz WHERE id_juiz = ?', [id_juiz], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
     }
@@ -1820,7 +1810,7 @@ app.delete('/juiz_avaliacao/:id_juiz', (req, res) => {
 
 app.delete('/av_juiz/:id_juiz', (req, res) => {
   const id_juiz = req.params.id_juiz;
-  pool.query('DELETE FROM av_juiz WHERE id_juiz = ?', [id_juiz], (err, result) => {
+  db.query('DELETE FROM av_juiz WHERE id_juiz = ?', [id_juiz], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
     }
@@ -1831,7 +1821,7 @@ app.delete('/av_juiz/:id_juiz', (req, res) => {
 app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
   try {
     // Buscar as avaliações individuais do usuário
-    const [avaliacoes] = await pool.promise().query(
+    const [avaliacoes] = await db.promise().query(
       `SELECT 
         av_produtividade,    
         av_fundamentacao,      
@@ -1889,7 +1879,7 @@ app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
 //   }
 
 //   try {
-//     await pool.promise().query(
+//     await db.promise().query(
 //       'INSERT INTO av_mediador (id_usuario, id_mediador, comentario, avaliacao, horario_chegada, horario_saida) VALUES (?, ?, ?, ?, ?, ?)',
 //       [id_usuario, id_mediador, comentario || null, avaliacao, horario_chegada || null, horario_saida || null]
 //     );
@@ -1902,7 +1892,7 @@ app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
 
 // app.get('/mediador_avaliacao/:id_mediador', async (req, res) => {
 //   try {
-//     const [resultado] = await pool.promise().query(
+//     const [resultado] = await db.promise().query(
 //       'SELECT ROUND(AVG(avaliacao),2) AS media_avaliacao FROM av_mediador WHERE id_mediador = ?',
 //       [req.params.id_mediador]
 //     );
@@ -1914,7 +1904,7 @@ app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
 // });
 // app.get('/av_mediador', (req, res) => {
 //   const sql = 'SELECT * FROM av_mediador';
-//   pool.query(sql, (err, result) => {
+//   db.query(sql, (err, result) => {
 //     if (err) throw err;
 //     res.send(result);
 //   });
@@ -1954,7 +1944,7 @@ app.post('/av_mediador', async (req, res) => {
   }
 
   try {
-    await pool.promise().query(
+    await db.promise().query(
       `INSERT INTO av_mediador (
         id_usuario, id_mediador, numero_processo, comentario,
         av_satisfacao, av_imparcialidade, av_conhecimento, av_pontualidade, av_organizacao,
@@ -1975,7 +1965,7 @@ app.post('/av_mediador', async (req, res) => {
 
 app.get('/mediador_avaliacao/:id_mediador', async (req, res) => {
   try {
-    const [resultado] = await pool.promise().query(
+    const [resultado] = await db.promise().query(
       'CALL CalcularMediaPonderadaMediador(?)',
       [req.params.id_mediador]
     );
@@ -1990,7 +1980,7 @@ app.get('/mediador_avaliacao/:id_mediador', async (req, res) => {
 
 app.delete('/mediador_avaliacao/:id_mediador', (req, res) => {
   const id_mediador = req.params.id_mediador;
-  pool.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id_mediador], (err, result) => {
+  db.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id_mediador], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
     }
@@ -2000,7 +1990,7 @@ app.delete('/mediador_avaliacao/:id_mediador', (req, res) => {
 
 app.delete('/av_mediador/:id_mediador', (req, res) => {
   const id_mediador = req.params.id_mediador;
-  pool.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id_mediador], (err, result) => {
+  db.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id_mediador], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
     }
@@ -2011,7 +2001,7 @@ app.delete('/av_mediador/:id_mediador', (req, res) => {
 app.get('/mediador_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res) => {
   try {
     // Buscar as avaliações individuais do usuário
-    const [avaliacoes] = await pool.promise().query(
+    const [avaliacoes] = await db.promise().query(
       `SELECT 
         av_satisfacao,
         av_imparcialidade,
@@ -2063,7 +2053,7 @@ app.get('/mediador_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res)
 // Rota com parâmetro: /av_foruns/1 (onde 1 é o id_forum)
 app.get('/av_mediador/:id_mediador', (req, res) => {
   const sql = 'SELECT * FROM av_mediador WHERE id_mediador = ?';
-  pool.query(sql, [req.params.id_mediador], (err, result) => {
+  db.query(sql, [req.params.id_mediador], (err, result) => {
     if (err) {
       res.status(500).json({ error: err.message });
       return;
@@ -2074,7 +2064,7 @@ app.get('/av_mediador/:id_mediador', (req, res) => {
 
 // app.delete('/mediador_avaliacao/:id_mediador', (req, res) => {
 //   const id_mediador = req.params.id_mediador;
-//   pool.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id_mediador], (err, result) => {
+//   db.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id_mediador], (err, result) => {
 //     if (err) {
 //       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
 //     }
@@ -2083,7 +2073,7 @@ app.get('/av_mediador/:id_mediador', (req, res) => {
 // });
 // app.delete('/av_mediador/:id_mediador', (req, res) => {
 //   const id_mediador = req.params.id_mediador;
-//   pool.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id_mediador], (err, result) => {
+//   db.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id_mediador], (err, result) => {
 //     if (err) {
 //       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
 //     }
@@ -2125,7 +2115,7 @@ app.post('/av_advocacia', async (req, res) => {
   }
 
   try {
-    await pool.promise().query(
+    await db.promise().query(
       `INSERT INTO av_advocacia (
         id_usuario, id_advocacia, numero_processo, comentario,
         av_eficiencia_processual, av_qualidade_tecnica, av_etica_profissional,
@@ -2146,7 +2136,7 @@ app.post('/av_advocacia', async (req, res) => {
 
 app.get('/advocacia_avaliacao/:id_advocacia', async (req, res) => {
   try {
-    const [resultado] = await pool.promise().query(
+    const [resultado] = await db.promise().query(
       'CALL CalcularMediaPonderadaAdvocacia(?)',
       [req.params.id_advocacia]
     );
@@ -2161,7 +2151,7 @@ app.get('/advocacia_avaliacao/:id_advocacia', async (req, res) => {
 
 app.get('/av_advocacia', (req, res) => {
   const sql = 'SELECT * FROM av_advocacia';
-  pool.query(sql, (err, result) => {
+  db.query(sql, (err, result) => {
     if (err) throw err;
     res.send(result);
   });
@@ -2172,7 +2162,7 @@ app.get('/av_advocacia', (req, res) => {
 // Rota com parâmetro: /av_foruns/1 (onde 1 é o id_forum)
 app.get('/av_advocacia/:id_advocacia', (req, res) => {
   const sql = 'SELECT * FROM av_advocacia WHERE id_advocacia = ?';
-  pool.query(sql, [req.params.id_advocacia], (err, result) => {
+  db.query(sql, [req.params.id_advocacia], (err, result) => {
     if (err) {
       res.status(500).json({ error: err.message });
       return;
@@ -2183,7 +2173,7 @@ app.get('/av_advocacia/:id_advocacia', (req, res) => {
 
 app.delete('/advocacia_avaliacao/:id_advocacia', (req, res) => {
   const id_advocacia = req.params.id_advocacia;
-  pool.query('DELETE FROM av_advocacia WHERE id_advocacia = ?', [id_advocacia], (err, result) => {
+  db.query('DELETE FROM av_advocacia WHERE id_advocacia = ?', [id_advocacia], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
     }
@@ -2192,7 +2182,7 @@ app.delete('/advocacia_avaliacao/:id_advocacia', (req, res) => {
 });
 app.delete('/av_advocacia/:id_advocacia', (req, res) => {
   const id_advocacia = req.params.id_advocacia;
-  pool.query('DELETE FROM av_advocacia WHERE id_advocacia = ?', [id_advocacia], (err, result) => {
+  db.query('DELETE FROM av_advocacia WHERE id_advocacia = ?', [id_advocacia], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
     }
@@ -2203,7 +2193,7 @@ app.delete('/av_advocacia/:id_advocacia', (req, res) => {
 app.get('/advocacia_avaliacao_usuario/:id_advocacia/:id_usuario', async (req, res) => {
   try {
     // Buscar as avaliações individuais do usuário
-    const [avaliacoes] = await pool.promise().query(
+    const [avaliacoes] = await db.promise().query(
       `SELECT 
         av_eficiencia_processual,
         av_qualidade_tecnica,
@@ -2280,7 +2270,7 @@ app.post('/av_portal', async (req, res) => {
   }
 
   try {
-      await pool.promise().query(
+      await db.promise().query(
           `INSERT INTO av_portal (
               id_usuario, id_portal, comentario,
               av_seguranca_sistema, av_usabilidade, av_integracao,
@@ -2301,7 +2291,7 @@ app.post('/av_portal', async (req, res) => {
 
 app.get('/portal_avaliacao/:id_portal', async (req, res) => {
   try {
-    const [resultado] = await pool.promise().query(
+    const [resultado] = await db.promise().query(
       'CALL CalcularMediaPonderadaPortal(?)',
       [req.params.id_portal]
     );
@@ -2316,7 +2306,7 @@ app.get('/portal_avaliacao/:id_portal', async (req, res) => {
 
 app.get('/av_portal', (req, res) => {
   const sql = 'SELECT * FROM av_portal';
-  pool.query(sql, (err, result) => {
+  db.query(sql, (err, result) => {
     if (err) throw err;
     res.send(result);
   });
@@ -2326,7 +2316,7 @@ app.get('/av_portal', (req, res) => {
 // Rota com parâmetro: /av_foruns/1 (onde 1 é o id_forum)
 app.get('/av_portal/:id_portal', (req, res) => {
   const sql = 'SELECT * FROM av_portal WHERE id_portal = ?';
-  pool.query(sql, [req.params.id_portal], (err, result) => {
+  db.query(sql, [req.params.id_portal], (err, result) => {
     if (err) {
       res.status(500).json({ error: err.message });
       return;
@@ -2337,7 +2327,7 @@ app.get('/av_portal/:id_portal', (req, res) => {
 
 app.delete('/portal_avaliacao/:id_portal', (req, res) => {
   const id_portal = req.params.id_portal;
-  pool.query('DELETE FROM av_portal WHERE id_portal = ?', [id_portal], (err, result) => {
+  db.query('DELETE FROM av_portal WHERE id_portal = ?', [id_portal], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
     }
@@ -2346,7 +2336,7 @@ app.delete('/portal_avaliacao/:id_portal', (req, res) => {
 });
 app.delete('/av_portal/:id_portal', (req, res) => {
   const id_portal = req.params.id_portal;
-  pool.query('DELETE FROM av_portal WHERE id_portal = ?', [id_portal], (err, result) => {
+  db.query('DELETE FROM av_portal WHERE id_portal = ?', [id_portal], (err, result) => {
     if (err) {
       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
     }
@@ -2357,7 +2347,7 @@ app.delete('/av_portal/:id_portal', (req, res) => {
 app.get('/portal_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res) => {
   try {
     // Buscar as avaliações individuais do usuário
-    const [avaliacoes] = await pool.promise().query(
+    const [avaliacoes] = await db.promise().query(
       `SELECT 
         av_seguranca_sistema,
         av_usabilidade,
@@ -2419,18 +2409,19 @@ app.use((err, req, res, next) => {
   next(err);
 });
 
-process.on('SIGINT', () => {
-  pool.end(err => {
-    if (err) {
-      console.error('Erro ao encerrar o pool de conexões:', err);
-    } else {
-      console.log('Pool de conexões encerrado');
-    }
-    process.exit(err ? 1 : 0);
-  });
-});
-
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
     console.log(`Servidor backend rodando na porta ${PORT}`);
+});
+// Encerrar o pool de conexões ao desligar o servidor
+process.on('SIGTERM', () => {
+  db.end()
+    .then(() => {
+      console.log('Servidor encerrado e conexões liberadas');
+      process.exit(0);
+    })
+    .catch(err => {
+      console.error('Erro ao encerrar pool de conexões:', err);
+      process.exit(1);
+    });
 });
