@@ -1261,6 +1261,7 @@ const authorize = (roles = []) => {
 //   }
 // });
 
+// Rota POST - Adicionar avaliação ao fórum
 app.post('/av_foruns', async (req, res) => {
   const { 
     id_usuario, 
@@ -1290,8 +1291,10 @@ app.post('/av_foruns', async (req, res) => {
     return res.status(400).json({ error: "Número de protocolo deve ter entre 5 e 20 dígitos." });
   }
 
+  let connection;
   try {
-    await db.promise().query(
+    connection = await db.promise().getConnection();
+    await connection.query(
       `INSERT INTO av_foruns (
         id_usuario, id_forum, numero_protocolo, comentario,
         av_atendimento, av_organizacao, av_digital,
@@ -1309,27 +1312,17 @@ app.post('/av_foruns', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao adicionar a avaliação.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
-
-
-// app.get('/foruns_avaliacao/:id_forum', async (req, res) => {
-//   try {
-//     const [resultado] = await db.promise().query(
-//       'SELECT ROUND(AVG(avaliacao),2) AS media_avaliacao FROM av_foruns WHERE id_forum = ?',
-//       [req.params.id_forum]
-//     );
-//     res.json({ media_avaliacao: resultado[0].media_avaliacao || 0 });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ error: 'Erro ao calcular a média de avaliações.' });
-//   }
-// });
-
+// Rota GET - Calcular a média ponderada das avaliações de um fórum
 app.get('/foruns_avaliacao/:id_forum', async (req, res) => {
+  let connection;
   try {
-    const [resultado] = await db.promise().query(
+    connection = await db.promise().getConnection();
+    const [resultado] = await connection.query(
       'CALL CalcularMediaPonderadaForum(?)',
       [req.params.id_forum]
     );
@@ -1339,53 +1332,79 @@ app.get('/foruns_avaliacao/:id_forum', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao calcular a média ponderada de avaliações.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
-app.get('/av_foruns', (req, res) => {
-  const sql = 'SELECT * FROM av_foruns';
-  db.query(sql, (err, result) => {
-    if (err) throw err;
-    res.send(result);
-  });
-});
-
-
-// Rota com parâmetro: /av_foruns/1 (onde 1 é o id_forum)
-app.get('/av_foruns/:id_forum', (req, res) => {
-  const sql = 'SELECT * FROM av_foruns WHERE id_forum = ?';
-  db.query(sql, [req.params.id_forum], (err, result) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json(result);
-  });
-});
-
-app.delete('/foruns_avaliacao/:id_forum', (req, res) => {
-  const id_forum = req.params.id_forum;
-  db.query('DELETE FROM av_foruns WHERE id_forum = ?', [id_forum], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao deletar avaliações' });
-    }
-    res.send({ message: 'Avaliações deletadas com sucesso' });
-  });
-});
-app.delete('/av_foruns/:id_forum', (req, res) => {
-  const id_forum = req.params.id_forum;
-  db.query('DELETE FROM av_foruns WHERE id_forum = ?', [id_forum], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao deletar avaliações' });
-    }
-    res.send({ message: 'Avaliações deletadas com sucesso' });
-  });
-});
-
-app.get('/foruns_avaliacao_usuario/:id_forum/:id_usuario', async (req, res) => {
+// Rota GET - Buscar todas as avaliações
+app.get('/av_foruns', async (req, res) => {
+  let connection;
   try {
-    // Buscar as avaliações individuais do usuário
-    const [avaliacoes] = await db.promise().query(
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM av_foruns');
+    res.send(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: 'Erro ao buscar avaliações' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota GET - Buscar avaliações de um fórum específico
+app.get('/av_foruns/:id_forum', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM av_foruns WHERE id_forum = ?', [req.params.id_forum]);
+
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota DELETE - Deletar avaliações de um fórum
+app.delete('/foruns_avaliacao/:id_forum', async (req, res) => {
+  const id_forum = req.params.id_forum;
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    await connection.query('DELETE FROM av_foruns WHERE id_forum = ?', [id_forum]);
+    res.send({ message: 'Avaliações deletadas com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: 'Erro ao deletar avaliações' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+app.delete('/av_foruns/:id_forum', async (req, res) => {
+  const id_forum = req.params.id_forum;
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    await connection.query('DELETE FROM av_foruns WHERE id_forum = ?', [id_forum]);
+    res.send({ message: 'Avaliações deletadas com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: 'Erro ao deletar avaliações' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota GET - Buscar avaliações de um fórum por usuário
+app.get('/foruns_avaliacao_usuario/:id_forum/:id_usuario', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [avaliacoes] = await connection.query(
       `SELECT 
         av_atendimento,
         av_organizacao,
@@ -1431,8 +1450,11 @@ app.get('/foruns_avaliacao_usuario/:id_forum/:id_usuario', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar avaliações do usuário.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
+
 
 
 
@@ -1464,6 +1486,7 @@ app.get('/foruns_avaliacao_usuario/:id_forum/:id_usuario', async (req, res) => {
 //   }
 // });
 
+// Rota POST - Adicionar avaliação ao tribunal
 app.post('/av_tribunais', async (req, res) => {
   const { 
     id_usuario, 
@@ -1496,8 +1519,10 @@ app.post('/av_tribunais', async (req, res) => {
     return res.status(400).json({ error: "Número de protocolo deve ter entre 5 e 20 dígitos." });
   }
 
+  let connection;
   try {
-    await db.promise().query(
+    connection = await db.promise().getConnection();
+    await connection.query(
       `INSERT INTO av_tribunais (
         id_usuario, id_tribunal, numero_protocolo, comentario,
         av_eficiencia, av_qualidade, av_infraestrutura,
@@ -1515,25 +1540,17 @@ app.post('/av_tribunais', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao adicionar a avaliação.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
-// app.get('/tribunais_avaliacao/:id_tribunal', async (req, res) => {
-//   try {
-//     const [resultado] = await db.promise().query(
-//       'SELECT ROUND(AVG(avaliacao),2) AS media_avaliacao FROM av_tribunais WHERE id_tribunal = ?',
-//       [req.params.id_tribunal]
-//     );
-//     res.json({ media_avaliacao: resultado[0].media_avaliacao || 0 });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ error: 'Erro ao calcular a média de avaliações.' });
-//   }
-// });
-
+// Rota GET - Calcular a média ponderada das avaliações de um tribunal
 app.get('/tribunais_avaliacao/:id_tribunal', async (req, res) => {
+  let connection;
   try {
-    const [resultado] = await db.promise().query(
+    connection = await db.promise().getConnection();
+    const [resultado] = await connection.query(
       'CALL CalcularMediaPonderadaTribunal(?)',
       [req.params.id_tribunal]
     );
@@ -1543,33 +1560,32 @@ app.get('/tribunais_avaliacao/:id_tribunal', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao calcular a média ponderada de avaliações.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
-app.get('/av_tribunais', (req, res) => {
-  const sql = 'SELECT * FROM av_tribunais';
-  db.query(sql, (err, result) => {
-    if (err) throw err;
+// Rota GET - Buscar todas as avaliações
+app.get('/av_tribunais', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM av_tribunais');
     res.send(result);
-  });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: 'Erro ao buscar avaliações' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-
-// Rota com parâmetro: /av_foruns/1 (onde 1 é o id_forum)
-// app.get('/av_tribunais/:id_tribunal', (req, res) => {
-//   const sql = 'SELECT * FROM av_tribunais WHERE id_tribunal = ?';
-//   db.query(sql, [req.params.id_tribunal], (err, result) => {
-//     if (err) {
-//       res.status(500).json({ error: err.message });
-//       return;
-//     }
-//     res.json(result);
-//   });
-// });
-
+// Rota GET - Buscar avaliações de um tribunal específico
 app.get('/av_tribunais/:id_tribunal', async (req, res) => {
+  let connection;
   try {
-    const [resultado] = await db.promise().query(
+    connection = await db.promise().getConnection();
+    const [resultado] = await connection.query(
       'SELECT * FROM av_tribunais WHERE id_tribunal = ?',
       [req.params.id_tribunal]
     );
@@ -1577,27 +1593,26 @@ app.get('/av_tribunais/:id_tribunal', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar avaliações.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
-app.delete('/tribunais_avaliacao/:id_tribunal', (req, res) => {
+// Rota DELETE - Deletar avaliações de um tribunal
+app.delete('/tribunais_avaliacao/:id_tribunal', async (req, res) => {
   const id_tribunal = req.params.id_tribunal;
-  db.query('DELETE FROM av_tribunais WHERE id_tribunal = ?', [id_tribunal], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao deletar avaliações' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    await connection.query('DELETE FROM av_tribunais WHERE id_tribunal = ?', [id_tribunal]);
     res.send({ message: 'Avaliações deletadas com sucesso' });
-  });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: 'Erro ao deletar avaliações' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
-// app.delete('/av_tribunais/:id_tribunal', (req, res) => {
-//   const id_tribunal = req.params.id_tribunal;
-//   db.query('DELETE FROM av_tribunais WHERE id_tribunal = ?', [id_tribunal], (err, result) => {
-//     if (err) {
-//       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
-//     }
-//     res.send({ message: 'Avaliações deletadas com sucesso' });
-//   });
-// });
 
 app.delete('/av_tribunais/:id_tribunal', async (req, res) => {
   try {
@@ -1612,10 +1627,13 @@ app.delete('/av_tribunais/:id_tribunal', async (req, res) => {
   }
 });
 
+// Rota GET - Buscar avaliações de um tribunal por usuário
 app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res) => {
+  let connection;
   try {
+    connection = await db.promise().getConnection();
     // Buscar todas as avaliações do usuário para o tribunal
-    const [avaliacoes] = await db.promise().query(
+    const [avaliacoes] = await connection.query(
       `SELECT 
         av_eficiencia,
         av_qualidade,
@@ -1664,8 +1682,11 @@ app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar avaliações do usuário.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
+
 
 // app.post('/tribunais_avaliacao_usuario', async (req, res) => {
 //   const { id_tribunal, id_usuario, av_eficiencia, av_qualidade, av_infraestrutura, av_tecnologia, av_gestao, av_transparencia, av_sustentabilidade } = req.body;
@@ -1751,6 +1772,7 @@ app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res
 //   }
 // });
 
+// Rota POST - Adicionar avaliação do juiz
 app.post('/av_juiz', async (req, res) => {
   const { 
     id_usuario, 
@@ -1784,8 +1806,10 @@ app.post('/av_juiz', async (req, res) => {
     return res.status(400).json({ error: "Número do processo deve ter entre 5 e 20 caracteres." });
   }
 
+  let connection;
   try {
-    await db.promise().query(
+    connection = await db.promise().getConnection();
+    await connection.query(
       `INSERT INTO av_juiz (
         id_usuario, id_juiz, numero_processo, comentario,
         av_produtividade, av_fundamentacao, av_pontualidade,
@@ -1803,33 +1827,17 @@ app.post('/av_juiz', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao adicionar a avaliação do juiz.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
-
-// app.get('/juiz_avaliacao/:id_juiz', async (req, res) => {
-//   try {
-//     const [resultado] = await db.promise().query(
-//       'SELECT ROUND(AVG(avaliacao),2) AS media_avaliacao FROM av_juiz WHERE id_juiz = ?',
-//       [req.params.id_juiz]
-//     );
-//     res.json({ media_avaliacao: resultado[0].media_avaliacao || 0 });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ error: 'Erro ao calcular a média de avaliações.' });
-//   }
-// });
-// app.get('/av_juiz', (req, res) => {
-//   const sql = 'SELECT * FROM av_juiz';
-//   db.query(sql, (err, result) => {
-//     if (err) throw err;
-//     res.send(result);
-//   });
-// });
-
+// Rota GET - Calcular a média ponderada das avaliações de um juiz
 app.get('/juiz_avaliacao/:id_juiz', async (req, res) => {
+  let connection;
   try {
-    const [resultado] = await db.promise().query(
+    connection = await db.promise().getConnection();
+    const [resultado] = await connection.query(
       'CALL CalcularMediaPonderadaJuiz(?)',
       [req.params.id_juiz]
     );
@@ -1839,45 +1847,68 @@ app.get('/juiz_avaliacao/:id_juiz', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao calcular a média ponderada de avaliações.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
-// Rota com parâmetro: /av_foruns/1 (onde 1 é o id_forum)
-app.get('/av_juiz/:id_juiz', (req, res) => {
-  const sql = 'SELECT * FROM av_juiz WHERE id_juiz = ?';
-  db.query(sql, [req.params.id_juiz], (err, result) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json(result);
-  });
-});
-
-app.delete('/juiz_avaliacao/:id_juiz', (req, res) => {
-  const id_juiz = req.params.id_juiz;
-  db.query('DELETE FROM av_juiz WHERE id_juiz = ?', [id_juiz], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao deletar avaliações' });
-    }
-    res.send({ message: 'Avaliações deletadas com sucesso' });
-  });
-});
-
-app.delete('/av_juiz/:id_juiz', (req, res) => {
-  const id_juiz = req.params.id_juiz;
-  db.query('DELETE FROM av_juiz WHERE id_juiz = ?', [id_juiz], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao deletar avaliações' });
-    }
-    res.send({ message: 'Avaliações deletadas com sucesso' });
-  });
-});
-
-app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
+// Rota GET - Buscar avaliações de um juiz específico
+app.get('/av_juiz/:id_juiz', async (req, res) => {
+  let connection;
   try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query(
+      'SELECT * FROM av_juiz WHERE id_juiz = ?',
+      [req.params.id_juiz]
+    );
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota DELETE - Deletar avaliações de um juiz
+app.delete('/juiz_avaliacao/:id_juiz', async (req, res) => {
+  const id_juiz = req.params.id_juiz;
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    await connection.query('DELETE FROM av_juiz WHERE id_juiz = ?', [id_juiz]);
+    res.send({ message: 'Avaliações deletadas com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: 'Erro ao deletar avaliações' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota DELETE - Deletar avaliações de um juiz (rota redundante)
+app.delete('/av_juiz/:id_juiz', async (req, res) => {
+  const id_juiz = req.params.id_juiz;
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    await connection.query('DELETE FROM av_juiz WHERE id_juiz = ?', [id_juiz]);
+    res.send({ message: 'Avaliações deletadas com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: 'Erro ao deletar avaliações' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota GET - Buscar avaliações de um juiz por usuário
+app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
     // Buscar as avaliações individuais do usuário
-    const [avaliacoes] = await db.promise().query(
+    const [avaliacoes] = await connection.query(
       `SELECT 
         av_produtividade,    
         av_fundamentacao,      
@@ -1923,8 +1954,11 @@ app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar avaliações do usuário.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
+
 
 //mediador
 // app.post('/av_mediador', async (req, res) => {
@@ -1966,6 +2000,7 @@ app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
 //   });
 // });
 
+// Rota POST - Adicionar avaliação do mediador
 app.post('/av_mediador', async (req, res) => {
   const { 
     id_usuario, 
@@ -1999,8 +2034,10 @@ app.post('/av_mediador', async (req, res) => {
     return res.status(400).json({ error: "Número do processo deve ter entre 5 e 20 caracteres." });
   }
 
+  let connection;
   try {
-    await db.promise().query(
+    connection = await db.promise().getConnection();
+    await connection.query(
       `INSERT INTO av_mediador (
         id_usuario, id_mediador, numero_processo, comentario,
         av_satisfacao, av_imparcialidade, av_conhecimento, av_pontualidade, av_organizacao,
@@ -2015,13 +2052,18 @@ app.post('/av_mediador', async (req, res) => {
     res.status(201).json({ message: 'Avaliação do mediador adicionada com sucesso.' });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Erro ao adicionar a avaliação do juiz.' });
+    res.status(500).json({ error: 'Erro ao adicionar a avaliação do mediador.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
+// Rota GET - Calcular a média ponderada das avaliações de um mediador
 app.get('/mediador_avaliacao/:id_mediador', async (req, res) => {
+  let connection;
   try {
-    const [resultado] = await db.promise().query(
+    connection = await db.promise().getConnection();
+    const [resultado] = await connection.query(
       'CALL CalcularMediaPonderadaMediador(?)',
       [req.params.id_mediador]
     );
@@ -2031,33 +2073,50 @@ app.get('/mediador_avaliacao/:id_mediador', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao calcular a média ponderada de avaliações.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
-app.delete('/mediador_avaliacao/:id_mediador', (req, res) => {
+// Rota DELETE - Deletar avaliações de um mediador
+app.delete('/mediador_avaliacao/:id_mediador', async (req, res) => {
   const id_mediador = req.params.id_mediador;
-  db.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id_mediador], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao deletar avaliações' });
-    }
-    res.send({ message: 'Avaliações deletadas com sucesso' });
-  });
-});
-
-app.delete('/av_mediador/:id_mediador', (req, res) => {
-  const id_mediador = req.params.id_mediador;
-  db.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id_mediador], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao deletar avaliações' });
-    }
-    res.send({ message: 'Avaliações deletadas com sucesso' });
-  });
-});
-
-app.get('/mediador_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res) => {
+  let connection;
   try {
+    connection = await db.promise().getConnection();
+    await connection.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id_mediador]);
+    res.send({ message: 'Avaliações deletadas com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: 'Erro ao deletar avaliações' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota DELETE - Deletar avaliações de um mediador (rota redundante)
+app.delete('/av_mediador/:id_mediador', async (req, res) => {
+  const id_mediador = req.params.id_mediador;
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    await connection.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id_mediador]);
+    res.send({ message: 'Avaliações deletadas com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: 'Erro ao deletar avaliações' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota GET - Buscar avaliações de um mediador por usuário
+app.get('/mediador_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
     // Buscar as avaliações individuais do usuário
-    const [avaliacoes] = await db.promise().query(
+    const [avaliacoes] = await connection.query(
       `SELECT 
         av_satisfacao,
         av_imparcialidade,
@@ -2103,20 +2162,29 @@ app.get('/mediador_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res)
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar avaliações do usuário.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
-// Rota com parâmetro: /av_foruns/1 (onde 1 é o id_forum)
-app.get('/av_mediador/:id_mediador', (req, res) => {
-  const sql = 'SELECT * FROM av_mediador WHERE id_mediador = ?';
-  db.query(sql, [req.params.id_mediador], (err, result) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
+// Rota GET - Buscar todas as avaliações de um mediador
+app.get('/av_mediador/:id_mediador', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query(
+      'SELECT * FROM av_mediador WHERE id_mediador = ?',
+      [req.params.id_mediador]
+    );
     res.json(result);
-  });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (connection) connection.release();
+  }
 });
+
 
 // app.delete('/mediador_avaliacao/:id_mediador', (req, res) => {
 //   const id_mediador = req.params.id_mediador;
@@ -2138,6 +2206,7 @@ app.get('/av_mediador/:id_mediador', (req, res) => {
 // });
 
 //advocacia
+// Rota POST - Adicionar avaliação da advocacia
 app.post('/av_advocacia', async (req, res) => {
   const { 
     id_usuario, 
@@ -2170,8 +2239,10 @@ app.post('/av_advocacia', async (req, res) => {
     return res.status(400).json({ error: "Número do processo deve ter entre 5 e 20 dígitos." });
   }
 
+  let connection;
   try {
-    await db.promise().query(
+    connection = await db.promise().getConnection();
+    await connection.query(
       `INSERT INTO av_advocacia (
         id_usuario, id_advocacia, numero_processo, comentario,
         av_eficiencia_processual, av_qualidade_tecnica, av_etica_profissional,
@@ -2187,12 +2258,17 @@ app.post('/av_advocacia', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao adicionar a avaliação.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
+// Rota GET - Calcular a média ponderada das avaliações de uma advocacia
 app.get('/advocacia_avaliacao/:id_advocacia', async (req, res) => {
+  let connection;
   try {
-    const [resultado] = await db.promise().query(
+    connection = await db.promise().getConnection();
+    const [resultado] = await connection.query(
       'CALL CalcularMediaPonderadaAdvocacia(?)',
       [req.params.id_advocacia]
     );
@@ -2202,54 +2278,83 @@ app.get('/advocacia_avaliacao/:id_advocacia', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao calcular a média ponderada de avaliações.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
-app.get('/av_advocacia', (req, res) => {
-  const sql = 'SELECT * FROM av_advocacia';
-  db.query(sql, (err, result) => {
-    if (err) throw err;
-    res.send(result);
-  });
-});
-
-
-
-// Rota com parâmetro: /av_foruns/1 (onde 1 é o id_forum)
-app.get('/av_advocacia/:id_advocacia', (req, res) => {
-  const sql = 'SELECT * FROM av_advocacia WHERE id_advocacia = ?';
-  db.query(sql, [req.params.id_advocacia], (err, result) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json(result);
-  });
-});
-
-app.delete('/advocacia_avaliacao/:id_advocacia', (req, res) => {
-  const id_advocacia = req.params.id_advocacia;
-  db.query('DELETE FROM av_advocacia WHERE id_advocacia = ?', [id_advocacia], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao deletar avaliações' });
-    }
-    res.send({ message: 'Avaliações deletadas com sucesso' });
-  });
-});
-app.delete('/av_advocacia/:id_advocacia', (req, res) => {
-  const id_advocacia = req.params.id_advocacia;
-  db.query('DELETE FROM av_advocacia WHERE id_advocacia = ?', [id_advocacia], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao deletar avaliações' });
-    }
-    res.send({ message: 'Avaliações deletadas com sucesso' });
-  });
-});
-
-app.get('/advocacia_avaliacao_usuario/:id_advocacia/:id_usuario', async (req, res) => {
+// Rota GET - Buscar todas as avaliações de advocacia
+app.get('/av_advocacia', async (req, res) => {
+  let connection;
   try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM av_advocacia');
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota GET - Buscar avaliação de uma advocacia por ID
+app.get('/av_advocacia/:id_advocacia', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query(
+      'SELECT * FROM av_advocacia WHERE id_advocacia = ?',
+      [req.params.id_advocacia]
+    );
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota DELETE - Deletar avaliações de uma advocacia
+app.delete('/advocacia_avaliacao/:id_advocacia', async (req, res) => {
+  const id_advocacia = req.params.id_advocacia;
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    await connection.query('DELETE FROM av_advocacia WHERE id_advocacia = ?', [id_advocacia]);
+    res.send({ message: 'Avaliações deletadas com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: 'Erro ao deletar avaliações' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota DELETE - Deletar avaliações de uma advocacia (rota redundante)
+app.delete('/av_advocacia/:id_advocacia', async (req, res) => {
+  const id_advocacia = req.params.id_advocacia;
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    await connection.query('DELETE FROM av_advocacia WHERE id_advocacia = ?', [id_advocacia]);
+    res.send({ message: 'Avaliações deletadas com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: 'Erro ao deletar avaliações' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota GET - Buscar avaliações de uma advocacia feitas por um usuário
+app.get('/advocacia_avaliacao_usuario/:id_advocacia/:id_usuario', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
     // Buscar as avaliações individuais do usuário
-    const [avaliacoes] = await db.promise().query(
+    const [avaliacoes] = await connection.query(
       `SELECT 
         av_eficiencia_processual,
         av_qualidade_tecnica,
@@ -2295,115 +2400,155 @@ app.get('/advocacia_avaliacao_usuario/:id_advocacia/:id_usuario', async (req, re
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar avaliações do usuário.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
 
 //portal
+// Rota POST - Adicionar avaliação do portal
 app.post('/av_portal', async (req, res) => {
   const {
-      id_usuario,
-      id_portal,
-      comentario,
-      av_seguranca_sistema,
-      av_usabilidade,
-      av_integracao,
-      av_atualizacao,
-      av_acessibilidade
+    id_usuario,
+    id_portal,
+    comentario,
+    av_seguranca_sistema,
+    av_usabilidade,
+    av_integracao,
+    av_atualizacao,
+    av_acessibilidade
   } = req.body;
 
   // Validação dos campos de avaliação
   const avaliacoes = [
-      av_seguranca_sistema,
-      av_usabilidade,
-      av_integracao,
-      av_atualizacao,
-      av_acessibilidade
+    av_seguranca_sistema,
+    av_usabilidade,
+    av_integracao,
+    av_atualizacao,
+    av_acessibilidade
   ];
 
   if (avaliacoes.some(av => av < 1 || av > 5)) {
-      return res.status(400).json({ error: "Todas as avaliações devem estar entre 1 e 5." });
+    return res.status(400).json({ error: "Todas as avaliações devem estar entre 1 e 5." });
   }
 
+  let connection;
   try {
-      await db.promise().query(
-          `INSERT INTO av_portal (
-              id_usuario, id_portal, comentario,
-              av_seguranca_sistema, av_usabilidade, av_integracao,
-              av_atualizacao, av_acessibilidade
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-              id_usuario, id_portal, comentario,
-              av_seguranca_sistema, av_usabilidade, av_integracao,
-              av_atualizacao, av_acessibilidade
-          ]
-      );
-      res.status(201).json({ message: 'Avaliação adicionada com sucesso.' });
+    connection = await db.promise().getConnection();
+    await connection.query(
+      `INSERT INTO av_portal (
+        id_usuario, id_portal, comentario,
+        av_seguranca_sistema, av_usabilidade, av_integracao,
+        av_atualizacao, av_acessibilidade
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id_usuario, id_portal, comentario,
+        av_seguranca_sistema, av_usabilidade, av_integracao,
+        av_atualizacao, av_acessibilidade
+      ]
+    );
+    res.status(201).json({ message: 'Avaliação adicionada com sucesso.' });
   } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Erro ao adicionar a avaliação.' });
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao adicionar a avaliação.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
+// Rota GET - Calcular a média ponderada das avaliações de um portal
 app.get('/portal_avaliacao/:id_portal', async (req, res) => {
+  let connection;
   try {
-    const [resultado] = await db.promise().query(
+    connection = await db.promise().getConnection();
+    const [resultado] = await connection.query(
       'CALL CalcularMediaPonderadaPortal(?)',
       [req.params.id_portal]
     );
-    res.json({ 
+    res.json({
       media_ponderada: resultado[0][0]?.media_ponderada || 0
     });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao calcular a média ponderada de avaliações.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
-app.get('/av_portal', (req, res) => {
-  const sql = 'SELECT * FROM av_portal';
-  db.query(sql, (err, result) => {
-    if (err) throw err;
-    res.send(result);
-  });
-});
-
-
-// Rota com parâmetro: /av_foruns/1 (onde 1 é o id_forum)
-app.get('/av_portal/:id_portal', (req, res) => {
-  const sql = 'SELECT * FROM av_portal WHERE id_portal = ?';
-  db.query(sql, [req.params.id_portal], (err, result) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json(result);
-  });
-});
-
-app.delete('/portal_avaliacao/:id_portal', (req, res) => {
-  const id_portal = req.params.id_portal;
-  db.query('DELETE FROM av_portal WHERE id_portal = ?', [id_portal], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao deletar avaliações' });
-    }
-    res.send({ message: 'Avaliações deletadas com sucesso' });
-  });
-});
-app.delete('/av_portal/:id_portal', (req, res) => {
-  const id_portal = req.params.id_portal;
-  db.query('DELETE FROM av_portal WHERE id_portal = ?', [id_portal], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao deletar avaliações' });
-    }
-    res.send({ message: 'Avaliações deletadas com sucesso' });
-  });
-});
-
-app.get('/portal_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res) => {
+// Rota GET - Buscar todas as avaliações do portal
+app.get('/av_portal', async (req, res) => {
+  let connection;
   try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM av_portal');
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota GET - Buscar avaliações de um portal específico
+app.get('/av_portal/:id_portal', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query(
+      'SELECT * FROM av_portal WHERE id_portal = ?',
+      [req.params.id_portal]
+    );
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota DELETE - Deletar avaliações de um portal
+app.delete('/portal_avaliacao/:id_portal', async (req, res) => {
+  const id_portal = req.params.id_portal;
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    await connection.query('DELETE FROM av_portal WHERE id_portal = ?', [id_portal]);
+    res.send({ message: 'Avaliações deletadas com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: 'Erro ao deletar avaliações' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota DELETE - Deletar avaliações de um portal (rota redundante)
+app.delete('/av_portal/:id_portal', async (req, res) => {
+  const id_portal = req.params.id_portal;
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    await connection.query('DELETE FROM av_portal WHERE id_portal = ?', [id_portal]);
+    res.send({ message: 'Avaliações deletadas com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: 'Erro ao deletar avaliações' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Rota GET - Buscar avaliações de um portal feitas por um usuário específico
+app.get('/portal_avaliacao_usuario/:id_portal/:id_usuario', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
     // Buscar as avaliações individuais do usuário
-    const [avaliacoes] = await db.promise().query(
+    const [avaliacoes] = await connection.query(
       `SELECT 
         av_seguranca_sistema,
         av_usabilidade,
@@ -2449,8 +2594,11 @@ app.get('/portal_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res) =
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar avaliações do usuário.' });
+  } finally {
+    if (connection) connection.release();
   }
 });
+
 
 
 
