@@ -768,83 +768,26 @@ app.get('/portais/:id', (req, res) => {
 });
 
 // Rota POST - Criar portal com validação de URL
-app.post('/portais', upload.single('imagem'), (req, res) => {
-  console.log('Dados recebidos:', req.body); // Log para debug
-
-  const { nome, url, avaliacao_media } = req.body;
-  const imagem = req.file ? `/uploads/portais/${req.file.filename}` : null;
-
-  // Validação mais rigorosa dos campos
-  if (!nome || !url) {
-    if (req.file) {
-      deleteImage(`/uploads/portais/${req.file.filename}`);
-    }
-    return res.status(400).send({ 
-      error: 'Nome e URL são obrigatórios',
-      receivedData: { nome, url } // Mostra os dados recebidos para debug
-    });
-  }
-
-  // Validação básica de URL
+app.post('/portais', upload.single('imagem'), async (req, res) => {
+  let connection;
   try {
-    new URL(url);
-  } catch (e) {
-    if (req.file) {
-      deleteImage(`/uploads/portais/${req.file.filename}`);
-    }
-    return res.status(400).send({ error: 'URL inválida' });
-  }
+    console.log('Dados recebidos:', req.body);
 
-  const sql = 'INSERT INTO portal (nome, url, imagem, avaliacao_media) VALUES (?, ?, ?, ?)';
-  const values = [
-    nome,
-    url,
-    imagem,
-    avaliacao_media || '2.00'
-  ];
+    const { nome, url, avaliacao_media } = req.body;
+    const imagem = req.file ? `/uploads/portais/${req.file.filename}` : null;
 
-  // Log para debug
-  console.log('SQL:', sql);
-  console.log('Valores:', values);
-
-  db.query(sql, values, (err, result) => {
-    if (err) {
-      console.error('Erro ao inserir portal:', err);
+    // Validação mais rigorosa dos campos
+    if (!nome || !url) {
       if (req.file) {
         deleteImage(`/uploads/portais/${req.file.filename}`);
       }
-      return res.status(500).send({ 
-        error: 'Erro ao inserir portal', 
-        details: err.message,
-        sql: sql,
-        values: values
+      return res.status(400).send({ 
+        error: 'Nome e URL são obrigatórios',
+        receivedData: { nome, url }
       });
     }
 
-    // Buscar o registro recém-inserido para confirmar
-    db.query('SELECT * FROM portal WHERE id_portal = ?', [result.insertId], (err, selectResult) => {
-      if (err) {
-        console.error('Erro ao buscar portal inserido:', err);
-        return res.status(500).send({ 
-          error: 'Portal inserido mas erro ao recuperar dados', 
-          id: result.insertId 
-        });
-      }
-      console.log('Portal inserido:', selectResult[0]); // Log para debug
-      res.status(201).send(selectResult[0]);
-    });
-  });
-});
-
-// Rota PUT - Atualizar portal com validação de URL
-app.put('/portais/:id', upload.single('imagem'), (req, res) => {
-  console.log('Dados de atualização recebidos:', req.body); // Log para debug
-  
-  const id = req.params.id;
-  const { nome, url, avaliacao_media } = req.body;
-
-  // Se uma URL foi fornecida, validá-la
-  if (url) {
+    // Validação básica de URL
     try {
       new URL(url);
     } catch (e) {
@@ -853,18 +796,85 @@ app.put('/portais/:id', upload.single('imagem'), (req, res) => {
       }
       return res.status(400).send({ error: 'URL inválida' });
     }
-  }
-  
-  // Primeiro, verificar se o portal existe
-  db.query('SELECT * FROM portal WHERE id_portal = ?', [id], (err, result) => {
-    if (err) {
-      console.error('Erro ao buscar portal:', err);
-      return res.status(500).send({ 
-        error: 'Erro ao buscar portal', 
-        details: err.message 
-      });
+
+    // Obter conexão do pool
+    connection = await db.getConnection();
+
+    const sql = 'INSERT INTO portal (nome, url, imagem, avaliacao_media) VALUES (?, ?, ?, ?)';
+    const values = [
+      nome,
+      url,
+      imagem,
+      avaliacao_media || '2.00'
+    ];
+
+    console.log('SQL:', sql);
+    console.log('Valores:', values);
+
+    // Inserir o novo portal
+    const [result] = await connection.query(sql, values);
+
+    // Buscar o registro recém-inserido para confirmar
+    const [selectResult] = await connection.query(
+      'SELECT * FROM portal WHERE id_portal = ?',
+      [result.insertId]
+    );
+
+    console.log('Portal inserido:', selectResult[0]);
+    res.status(201).send(selectResult[0]);
+
+  } catch (error) {
+    console.error('Erro na operação:', error);
+    
+    // Limpar arquivo enviado em caso de erro
+    if (req.file) {
+      deleteImage(`/uploads/portais/${req.file.filename}`);
     }
 
+    const errorResponse = {
+      error: 'Erro ao processar a requisição',
+      details: error.message
+    };
+
+    // Adicionar informações extras de debug se for erro de SQL
+    if (error.sql) {
+      errorResponse.sql = error.sql;
+      errorResponse.sqlMessage = error.sqlMessage;
+    }
+
+    res.status(500).send(errorResponse);
+
+  } finally {
+    if (connection) {
+      connection.release();  // Libera a conexão ao pool apenas se ela foi obtida
+    }
+  }
+});
+
+// Rota PUT - Atualizar portal com validação de URL
+app.put('/portais/:id', upload.single('imagem'), async (req, res) => {
+  let connection;
+  try {
+    console.log('Dados de atualização recebidos:', req.body);
+    
+    const id = req.params.id;
+    const { nome, url, avaliacao_media } = req.body;
+
+    // Validar URL se fornecida
+    if (url) {
+      try {
+        new URL(url);
+      } catch (e) {
+        return res.status(400).send({ error: 'URL inválida' });
+      }
+    }
+    
+    // Obter conexão do pool
+    connection = await db.getConnection();
+    
+    // Verificar se o portal existe
+    const [result] = await connection.query('SELECT * FROM portal WHERE id_portal = ?', [id]);
+    
     if (result.length === 0) {
       if (req.file) {
         deleteImage(`/uploads/portais/${req.file.filename}`);
@@ -900,48 +910,42 @@ app.put('/portais/:id', upload.single('imagem'), (req, res) => {
       id
     ];
 
-    // Log para debug
     console.log('SQL de atualização:', sql);
     console.log('Valores de atualização:', updateValues);
 
-    db.query(sql, updateValues, (updateErr, updateResult) => {
-      if (updateErr) {
-        console.error('Erro ao atualizar portal:', updateErr);
-        if (req.file) {
-          deleteImage(`/uploads/portais/${req.file.filename}`);
-        }
-        return res.status(500).send({ 
-          error: 'Erro ao atualizar portal', 
-          details: updateErr.message 
-        });
-      }
+    const [updateResult] = await connection.query(sql, updateValues);
 
-      if (updateResult.affectedRows === 0) {
-        if (req.file) {
-          deleteImage(`/uploads/portais/${req.file.filename}`);
-        }
-        return res.status(404).send({ error: 'Nenhum registro foi atualizado' });
+    if (updateResult.affectedRows === 0) {
+      if (req.file) {
+        deleteImage(`/uploads/portais/${req.file.filename}`);
       }
+      return res.status(404).send({ error: 'Nenhum registro foi atualizado' });
+    }
 
-      // Se há uma nova imagem e existia uma antiga, deletar a antiga
-      if (req.file && antigaImagem) {
-        deleteImage(antigaImagem);
-      }
+    // Se há uma nova imagem e existia uma antiga, deletar a antiga
+    if (req.file && antigaImagem) {
+      deleteImage(antigaImagem);
+    }
 
-      // Buscar o registro atualizado para confirmar
-      db.query('SELECT * FROM portal WHERE id_portal = ?', [id], (err, finalResult) => {
-        if (err) {
-          console.error('Erro ao buscar portal atualizado:', err);
-          return res.status(500).send({ 
-            error: 'Portal atualizado mas erro ao recuperar dados', 
-            id: id 
-          });
-        }
-        console.log('Portal atualizado:', finalResult[0]); // Log para debug
-        res.send(finalResult[0]);
-      });
+    // Buscar o registro atualizado para confirmar
+    const [finalResult] = await connection.query('SELECT * FROM portal WHERE id_portal = ?', [id]);
+    console.log('Portal atualizado:', finalResult[0]);
+    res.send(finalResult[0]);
+
+  } catch (error) {
+    console.error('Erro na operação:', error);
+    if (req.file) {
+      deleteImage(`/uploads/portais/${req.file.filename}`);
+    }
+    res.status(500).send({ 
+      error: 'Erro ao processar a requisição', 
+      details: error.message 
     });
-  });
+  } finally {
+    if (connection) {
+      connection.release();  // Libera a conexão ao pool apenas se ela foi obtida
+    }
+  }
 });
 // Rota GET - Buscar portais com base em um termo de pesquisa
 app.get('/portais/search', (req, res) => {
@@ -1014,46 +1018,103 @@ app.get('/usuarios', (req, res) => {
 });
 
 app.post('/usuarios', async (req, res) => {
-  console.log('Recebendo requisição de cadastro:', req.body); // Log dos dados recebidos
+  let connection;
+  try {
+    console.log('Recebendo requisição de cadastro:', req.body);
 
-  const { cpf, nome, email, senha, telefone } = req.body;
+    const { cpf, nome, email, senha, telefone } = req.body;
 
-  if (!cpf || !nome || !email || !senha) {
-    console.log('Campos obrigatórios faltando'); // Log de validação
-    return res.status(400).send({ error: 'Todos os campos obrigatórios devem ser preenchidos' });
-  }
-
-  // Verificar se o usuário já existe
-  const sqlCheck = 'SELECT * FROM usuarios WHERE cpf = ? OR email = ?';
-  db.query(sqlCheck, [cpf, email], async (err, result) => {
-    if (err) {
-      console.error('Erro na verificação de usuário existente:', err); // Log de erro
-      return res.status(500).send({ error: 'Erro no servidor' });
-    }
-    if (result.length > 0) {
-      console.log('Usuário já existe'); // Log de usuário duplicado
-      return res.status(400).send({ error: 'Usuário já cadastrado com esse CPF ou email' });
-    }
-
-    try {
-      // Criptografar a senha
-      const hashedSenha = await bcrypt.hash(senha, 10);
-
-      // Inserir usuário
-      const sql = 'INSERT INTO usuarios (cpf, nome, email, senha, telefone) VALUES (?, ?, ?, ?, ?)';
-      db.query(sql, [cpf, nome, email, hashedSenha, telefone], (err, result) => {
-        if (err) {
-          console.error('Erro ao inserir usuário:', err); // Log de erro na inserção
-          return res.status(500).send({ error: 'Erro ao cadastrar usuário' });
-        }
-        console.log('Usuário cadastrado com sucesso'); // Log de sucesso
-        res.status(201).send({ message: 'Usuário cadastrado com sucesso' });
+    // Validação dos campos obrigatórios
+    if (!cpf || !nome || !email || !senha) {
+      console.log('Campos obrigatórios faltando');
+      return res.status(400).send({ 
+        error: 'Todos os campos obrigatórios devem ser preenchidos',
+        missingFields: Object.entries({ cpf, nome, email, senha })
+          .filter(([_, value]) => !value)
+          .map(([key]) => key)
       });
-    } catch (error) {
-      console.error('Erro ao criptografar senha:', error); // Log de erro na criptografia
-      return res.status(500).send({ error: 'Erro ao processar cadastro' });
     }
-  });
+
+    // Obter conexão do pool
+    connection = await db.getConnection();
+
+    // Verificar se o usuário já existe
+    const sqlCheck = 'SELECT * FROM usuarios WHERE cpf = ? OR email = ?';
+    const [existingUsers] = await connection.query(sqlCheck, [cpf, email]);
+
+    if (existingUsers.length > 0) {
+      console.log('Usuário já existe');
+      const duplicateField = existingUsers[0].cpf === cpf ? 'CPF' : 'email';
+      return res.status(400).send({ 
+        error: `Já existe um usuário cadastrado com este ${duplicateField}` 
+      });
+    }
+
+    // Criptografar a senha
+    const hashedSenha = await bcrypt.hash(senha, 10);
+
+    // Inserir usuário
+    const sql = `
+      INSERT INTO usuarios 
+        (cpf, nome, email, senha, telefone) 
+      VALUES 
+        (?, ?, ?, ?, ?)
+    `;
+
+    const [insertResult] = await connection.query(sql, [
+      cpf, 
+      nome, 
+      email, 
+      hashedSenha, 
+      telefone
+    ]);
+
+    console.log('Usuário cadastrado com sucesso:', {
+      id: insertResult.insertId,
+      cpf,
+      email
+    });
+
+    // Buscar o usuário recém-criado (sem retornar a senha)
+    const [newUser] = await connection.query(
+      'SELECT id_usuario, cpf, nome, email, telefone FROM usuarios WHERE id_usuario = ?',
+      [insertResult.insertId]
+    );
+
+    res.status(201).send({
+      message: 'Usuário cadastrado com sucesso',
+      usuario: newUser[0]
+    });
+
+  } catch (error) {
+    console.error('Erro na operação:', error);
+
+    // Determinar o tipo de erro para retornar uma mensagem apropriada
+    let statusCode = 500;
+    let errorMessage = 'Erro ao processar cadastro';
+
+    if (error.code === 'ER_DUP_ENTRY') {
+      statusCode = 400;
+      errorMessage = 'Dados únicos duplicados (CPF ou email)';
+    } else if (error.code === 'ER_BAD_NULL_ERROR') {
+      statusCode = 400;
+      errorMessage = 'Campos obrigatórios não preenchidos';
+    }
+
+    res.status(statusCode).send({ 
+      error: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('Erro ao liberar conexão:', releaseError);
+      }
+    }
+  }
 });
 
 // Adicione esta rota no seu server.js
@@ -1078,106 +1139,118 @@ app.get('/api/usuario/:id', (req, res) => {
 // Login de usuário
 // server.js - Rota de login modificada
 app.post('/login', async (req, res) => {
+  let connection;
   try {
-      const { email, senha } = req.body;
+    const { email, senha } = req.body;
 
-      // Validação básica
-      if (!email || !senha) {
-          return res.status(400).json({ error: 'Email e senha são obrigatórios' });
-      }
-
-      const sql = 'SELECT * FROM usuarios WHERE email = ?';
-      
-      db.query(sql, [email], async (err, result) => {
-          if (err) {
-              console.error('Erro na consulta:', err);
-              return res.status(500).json({ error: 'Erro no servidor' });
-          }
-          
-          if (result.length === 0) {
-              return res.status(400).json({ error: 'Usuário não encontrado' });
-          }
-
-          const usuario = result[0];
-          
-          try {
-              const isMatch = await bcrypt.compare(senha, usuario.senha);
-              
-              if (!isMatch) {
-                  return res.status(400).json({ error: 'Senha incorreta' });
-              }
-
-              const token = jwt.sign(
-                  {
-                      id: usuario.id_usuario,
-                      role: usuario.role,
-                      nome: usuario.nome
-                  },
-                  process.env.JWT_SECRET,
-                  { expiresIn: '1h' }
-              );
-
-              res.json({
-                  message: 'Login realizado com sucesso',
-                  token,
-                  user: {
-                      id: usuario.id_usuario,
-                      nome: usuario.nome,
-                      role: usuario.role,
-                      cpf: usuario.cpf,         // Adicionado
-                      email: usuario.email,      // Adicionado
-                      telefone: usuario.telefone // Adicionado
-                  }
-              });
-          } catch (bcryptError) {
-              console.error('Erro ao comparar senhas:', bcryptError);
-              return res.status(500).json({ error: 'Erro ao verificar senha' });
-          }
-      });
-  } catch (error) {
-      console.error('Erro no login:', error);
-      res.status(500).json({ error: 'Erro interno do servidor' });
-  }
-});
-
-const authenticateToken = (req, res, next) => {
-  try {
-      const authHeader = req.headers['authorization'];
-      const token = authHeader && authHeader.split(' ')[1];
-
-      if (!token) {
-          return res.status(401).json({ error: 'Token não fornecido' });
-      }
-
-      jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-          if (err) {
-              return res.status(403).json({ error: 'Token inválido' });
-          }
-          req.user = user;
-          next();
-      });
-  } catch (error) {
-      console.error('Erro na autenticação:', error);
-      res.status(500).json({ error: 'Erro na autenticação' });
-  }
-};
-
-// Exemplo de rota protegida
-app.get('/protected', authenticateToken, (req, res) => {
-  res.json({ message: 'Rota protegida', user: req.user });
-});
-
-// Middleware de autorização por role
-const authorize = (roles = []) => {
-  return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).send({ 
-        error: 'Acesso não autorizado'
+    // Validação básica
+    if (!email || !senha) {
+      console.log('Tentativa de login sem credenciais completas');
+      return res.status(400).json({ 
+        error: 'Email e senha são obrigatórios',
+        missingFields: {
+          email: !email,
+          senha: !senha
+        }
       });
     }
-    next();
-  };
-};
+
+    // Obter conexão do pool
+    connection = await db.getConnection();
+
+    // Buscar usuário
+    const sql = `
+      SELECT 
+        id_usuario,
+        nome,
+        email,
+        senha,
+        role,
+        cpf,
+        telefone
+      FROM usuarios 
+      WHERE email = ?
+    `;
+    
+    const [users] = await connection.query(sql, [email]);
+    
+    if (users.length === 0) {
+      console.log(`Tentativa de login com email não cadastrado: ${email}`);
+      return res.status(400).json({ 
+        error: 'Credenciais inválidas'  // Mensagem genérica por segurança
+      });
+    }
+
+    const usuario = users[0];
+    
+    // Verificar senha
+    const isMatch = await bcrypt.compare(senha, usuario.senha);
+    
+    if (!isMatch) {
+      console.log(`Senha incorreta para o email: ${email}`);
+      return res.status(400).json({ 
+        error: 'Credenciais inválidas'  // Mensagem genérica por segurança
+      });
+    }
+
+    // Gerar token JWT
+    const tokenPayload = {
+      id: usuario.id_usuario,
+      role: usuario.role,
+      nome: usuario.nome,
+      email: usuario.email  // Opcional: incluir email no token
+    };
+
+    const token = jwt.sign(
+      tokenPayload,
+      process.env.JWT_SECRET,
+      { 
+        expiresIn: process.env.JWT_EXPIRATION || '1h',
+        algorithm: 'HS256'
+      }
+    );
+
+    // Log de login bem-sucedido
+    console.log(`Login bem-sucedido para usuário: ${usuario.email}`);
+
+    // Remover senha dos dados do usuário
+    const { senha: _, ...userWithoutPassword } = usuario;
+
+    res.json({
+      message: 'Login realizado com sucesso',
+      token,
+      user: userWithoutPassword
+    });
+
+  } catch (error) {
+    console.error('Erro no processo de login:', error);
+    
+    // Tratamento específico de erros
+    if (error.code === 'ECONNREFUSED') {
+      return res.status(503).json({ 
+        error: 'Serviço temporariamente indisponível' 
+      });
+    }
+
+    res.status(500).json({ 
+      error: 'Erro interno do servidor',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+
+  } finally {
+    if (connection) {
+      try {
+        await connection.release();
+      } catch (releaseError) {
+        console.error('Erro ao liberar conexão:', releaseError);
+      }
+    }
+  }
+});
+
+
+// Exemplo de rota protegida
+
 
 
 
@@ -1198,7 +1271,6 @@ const authorize = (roles = []) => {
 //       'INSERT INTO av_foruns (id_usuario, id_forum, numero_protocolo, comentario, avaliacao, horario_chegada, horario_saida) VALUES (?, ?, ?, ?, ?, ?, ?)',
 //       [id_usuario, id_forum, numero_protocolo, comentario || null, avaliacao, horario_chegada || null, horario_saida || null]
 //     );
-//     res.status(201).json({ message: 'Comentário e avaliação adicionados com sucesso.' });
 //   } catch (error) {
 //     console.error(error);
 //     res.status(500).json({ error: 'Erro ao adicionar o comentário e a avaliação.' });
@@ -1206,53 +1278,198 @@ const authorize = (roles = []) => {
 // });
 
 app.post('/av_foruns', async (req, res) => {
-  const { 
-    id_usuario, 
-    id_forum, 
-    numero_protocolo, 
-    comentario,
-    av_atendimento,
-    av_organizacao,
-    av_digital,
-    av_infraestrutura,
-    av_seguranca,
-    horario_chegada, 
-    horario_saida 
-  } = req.body;
-
-  // Validação dos campos de avaliação
-  const avaliacoes = [
-    av_atendimento, av_organizacao, av_digital,
-    av_infraestrutura, av_seguranca
-  ];
-
-  if (avaliacoes.some(av => av < 1 || av > 5)) {
-    return res.status(400).json({ error: "Todas as avaliações devem estar entre 1 e 5." });
-  }
-
-  if (!numero_protocolo || numero_protocolo.length < 5 || numero_protocolo.length > 20) {
-    return res.status(400).json({ error: "Número de protocolo deve ter entre 5 e 20 dígitos." });
-  }
-
+  let connection;
   try {
-    await db.promise().query(
-      `INSERT INTO av_foruns (
-        id_usuario, id_forum, numero_protocolo, comentario,
-        av_atendimento, av_organizacao, av_digital,
-        av_infraestrutura, av_seguranca,
-        horario_chegada, horario_saida
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id_usuario, id_forum, numero_protocolo, comentario,
-        av_atendimento, av_organizacao, av_digital,
-        av_infraestrutura, av_seguranca,
-        horario_chegada || null, horario_saida || null
-      ]
+    const { 
+      id_usuario, 
+      id_forum, 
+      numero_protocolo, 
+      comentario,
+      av_atendimento,
+      av_organizacao,
+      av_digital,
+      av_infraestrutura,
+      av_seguranca,
+      horario_chegada, 
+      horario_saida 
+    } = req.body;
+
+    // Validação dos campos obrigatórios
+    const camposObrigatorios = {
+      id_usuario,
+      id_forum,
+      numero_protocolo,
+      av_atendimento,
+      av_organizacao,
+      av_digital,
+      av_infraestrutura,
+      av_seguranca
+    };
+
+    const camposFaltantes = Object.entries(camposObrigatorios)
+      .filter(([_, value]) => !value)
+      .map(([key]) => key);
+
+    if (camposFaltantes.length > 0) {
+      return res.status(400).json({
+        error: "Campos obrigatórios não preenchidos",
+        campos: camposFaltantes
+      });
+    }
+
+    // Validação das avaliações
+    const avaliacoes = {
+      av_atendimento,
+      av_organizacao,
+      av_digital,
+      av_infraestrutura,
+      av_seguranca
+    };
+
+    const avaliacoesInvalidas = Object.entries(avaliacoes)
+      .filter(([_, value]) => value < 1 || value > 5 || !Number.isInteger(value))
+      .map(([key]) => key);
+
+    if (avaliacoesInvalidas.length > 0) {
+      return res.status(400).json({
+        error: "Avaliações devem ser números inteiros entre 1 e 5",
+        avaliacoesInvalidas
+      });
+    }
+
+    // Validação do protocolo
+    if (!numero_protocolo || numero_protocolo.length < 5 || numero_protocolo.length > 20) {
+      return res.status(400).json({
+        error: "Número de protocolo inválido",
+        details: "Deve ter entre 5 e 20 caracteres",
+        received: numero_protocolo
+      });
+    }
+
+    // Validação dos horários
+    if (horario_chegada && horario_saida) {
+      const chegada = new Date(horario_chegada);
+      const saida = new Date(horario_saida);
+
+      if (isNaN(chegada.getTime()) || isNaN(saida.getTime())) {
+        return res.status(400).json({
+          error: "Formato de horário inválido",
+          format: "YYYY-MM-DD HH:MM:SS"
+        });
+      }
+
+      if (saida < chegada) {
+        return res.status(400).json({
+          error: "Horário de saída não pode ser anterior ao horário de chegada"
+        });
+      }
+    }
+
+    // Obter conexão do pool
+    connection = await db.getConnection();
+
+    // Verificar se usuário existe
+    const [usuarios] = await connection.query(
+      'SELECT id_usuario FROM usuarios WHERE id_usuario = ?',
+      [id_usuario]
     );
-    res.status(201).json({ message: 'Avaliação adicionada com sucesso.' });
+
+    if (usuarios.length === 0) {
+      return res.status(404).json({
+        error: "Usuário não encontrado"
+      });
+    }
+
+    // Verificar se fórum existe
+    const [foruns] = await connection.query(
+      'SELECT id_forum FROM forum WHERE id_forum = ?',
+      [id_forum]
+    );
+
+    if (foruns.length === 0) {
+      return res.status(404).json({
+        error: "Fórum não encontrado"
+      });
+    }
+
+    // Verificar se já existe avaliação do mesmo usuário para este fórum
+    const [avaliacaoExistente] = await connection.query(
+      'SELECT id_avaliacao FROM av_foruns WHERE id_usuario = ? AND id_forum = ?',
+      [id_usuario, id_forum]
+    );
+
+    if (avaliacaoExistente.length > 0) {
+      return res.status(400).json({
+        error: "Usuário já avaliou este fórum",
+        avaliacao_id: avaliacaoExistente[0].id_avaliacao
+      });
+    }
+
+    // Inserir avaliação
+    const sql = `
+      INSERT INTO av_foruns (
+        id_usuario, id_forum, numero_protocolo, comentario,
+        av_atendimento, av_organizacao, av_digital,
+        av_infraestrutura, av_seguranca,
+        horario_chegada, horario_saida,
+        data_avaliacao
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+    `;
+
+    const [result] = await connection.query(sql, [
+      id_usuario,
+      id_forum,
+      numero_protocolo,
+      comentario || null,
+      av_atendimento,
+      av_organizacao,
+      av_digital,
+      av_infraestrutura,
+      av_seguranca,
+      horario_chegada || null,
+      horario_saida || null
+    ]);
+
+    // Buscar avaliação inserida
+    const [novaAvaliacao] = await connection.query(
+      'SELECT * FROM av_foruns WHERE id_avaliacao = ?',
+      [result.insertId]
+    );
+
+    console.log(`Nova avaliação registrada: ID ${result.insertId}`);
+
+    res.status(201).json({
+      message: "Avaliação registrada com sucesso",
+      avaliacao: novaAvaliacao[0]
+    });
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erro ao adicionar a avaliação.' });
+    console.error('Erro ao registrar avaliação:', error);
+
+    let statusCode = 500;
+    let errorMessage = 'Erro ao registrar avaliação';
+
+    if (error.code === 'ER_DUP_ENTRY') {
+      statusCode = 400;
+      errorMessage = 'Avaliação duplicada';
+    } else if (error.code === 'ER_NO_REFERENCED_ROW') {
+      statusCode = 400;
+      errorMessage = 'Usuário ou fórum não encontrado';
+    }
+
+    res.status(statusCode).json({
+      error: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+
+  } finally {
+    if (connection) {
+      try {
+        await connection.release();
+      } catch (releaseError) {
+        console.error('Erro ao liberar conexão:', releaseError);
+      }
+    }
   }
 });
 
@@ -1264,7 +1481,7 @@ app.post('/av_foruns', async (req, res) => {
 //       'SELECT ROUND(AVG(avaliacao),2) AS media_avaliacao FROM av_foruns WHERE id_forum = ?',
 //       [req.params.id_forum]
 //     );
-//     res.json({ media_avaliacao: resultado[0].media_avaliacao || 0 });
+   
 //   } catch (error) {
 //     console.error(error);
 //     res.status(500).json({ error: 'Erro ao calcular a média de avaliações.' });
@@ -1272,17 +1489,97 @@ app.post('/av_foruns', async (req, res) => {
 // });
 
 app.get('/foruns_avaliacao/:id_forum', async (req, res) => {
+  let connection;
   try {
-    const [resultado] = await db.promise().query(
-      'CALL CalcularMediaPonderadaForum(?)',
-      [req.params.id_forum]
+    const id_forum = req.params.id_forum;
+
+    // Validar se o ID do fórum foi fornecido
+    if (!id_forum) {
+      return res.status(400).json({
+        error: 'ID do fórum é obrigatório',
+        providedId: id_forum
+      });
+    }
+
+    // Validar se o ID é um número válido
+    if (isNaN(id_forum) || id_forum <= 0) {
+      return res.status(400).json({
+        error: 'ID do fórum inválido',
+        providedId: id_forum
+      });
+    }
+
+    // Obter conexão do pool
+    connection = await db.getConnection();
+
+    // Verificar se o fórum existe
+    const [forumExists] = await connection.query(
+      'SELECT id_forum FROM forum WHERE id_forum = ?',
+      [id_forum]
     );
-    res.json({ 
-      media_ponderada: resultado[0][0]?.media_ponderada || 0
+
+    if (forumExists.length === 0) {
+      return res.status(404).json({
+        error: 'Fórum não encontrado',
+        forumId: id_forum
+      });
+    }
+
+    // Chamar a stored procedure para calcular a média
+    const [resultado] = await connection.query(
+      'CALL CalcularMediaPonderadaForum(?)',
+      [id_forum]
+    );
+
+    // Log do resultado para debug
+    console.log('Resultado do cálculo:', {
+      forumId: id_forum,
+      resultado: resultado[0][0]
     });
+
+    // Extrair e formatar o resultado
+    const mediaPonderada = resultado[0][0]?.media_ponderada ?? 0;
+    
+    // Retornar o resultado formatado
+    res.json({
+      forum_id: parseInt(id_forum),
+      media_ponderada: parseFloat(mediaPonderada.toFixed(2)),
+      timestamp: new Date().toISOString()
+    });
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erro ao calcular a média ponderada de avaliações.' });
+    console.error('Erro ao calcular média ponderada:', error);
+
+    // Tratamento específico de erros
+    if (error.code === 'ER_SP_DOES_NOT_EXIST') {
+      return res.status(500).json({
+        error: 'Stored procedure não encontrada',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+
+    if (error.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(500).json({
+        error: 'Tabela não encontrada',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+
+    // Erro genérico
+    res.status(500).json({
+      error: 'Erro ao calcular a média ponderada de avaliações',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+
+  } finally {
+    if (connection) {
+      try {
+        await connection.release();
+        console.log('Conexão liberada com sucesso');
+      } catch (releaseError) {
+        console.error('Erro ao liberar conexão:', releaseError);
+      }
+    }
   }
 });
 
@@ -1327,54 +1624,147 @@ app.delete('/av_foruns/:id_forum', (req, res) => {
 });
 
 app.get('/foruns_avaliacao_usuario/:id_forum/:id_usuario', async (req, res) => {
+  let connection;
   try {
+    // Validar parâmetros
+    const { id_forum, id_usuario } = req.params;
+    if (!id_forum || !id_usuario) {
+      return res.status(400).json({
+        error: 'Parâmetros inválidos',
+        details: {
+          id_forum: !id_forum ? 'ID do fórum é obrigatório' : null,
+          id_usuario: !id_usuario ? 'ID do usuário é obrigatório' : null
+        }
+      });
+    }
+
+    // Obter conexão do pool
+    connection = await db.getConnection();
+
+    // Verificar se o fórum existe
+    const [forum] = await connection.query(
+      'SELECT id_forum FROM foruns WHERE id_forum = ?',
+      [id_forum]
+    );
+
+    if (forum.length === 0) {
+      return res.status(404).json({
+        error: 'Fórum não encontrado'
+      });
+    }
+
+    // Verificar se o usuário existe
+    const [usuario] = await connection.query(
+      'SELECT id_usuario FROM usuarios WHERE id_usuario = ?',
+      [id_usuario]
+    );
+
+    if (usuario.length === 0) {
+      return res.status(404).json({
+        error: 'Usuário não encontrado'
+      });
+    }
+
     // Buscar as avaliações individuais do usuário
-    const [avaliacoes] = await db.promise().query(
+    const [avaliacoes] = await connection.query(
       `SELECT 
+        id_avaliacao,
         av_atendimento,
         av_organizacao,
         av_digital,
         av_infraestrutura,
-        av_seguranca
+        av_seguranca,
+        data_criacao,
+        data_atualizacao
       FROM av_foruns
       WHERE id_forum = ? AND id_usuario = ?
       ORDER BY data_criacao DESC`,
-      [req.params.id_forum, req.params.id_usuario]
+      [id_forum, id_usuario]
     );
 
     if (avaliacoes.length === 0) {
       return res.json({
         avaliacoes: null,
-        message: "Usuário ainda não avaliou este forum"
+        message: "Usuário ainda não avaliou este fórum"
       });
     }
 
-    // Calcular a média geral das avaliações do usuário com pesos
-    const avaliacoesComMedia = avaliacoes.map(avaliacao => {
-      const somaAvaliacoes = (
-        avaliacao.av_atendimento * 5 +
-        avaliacao.av_organizacao * 4 +
-        avaliacao.av_digital * 3 +
-        avaliacao.av_infraestrutura * 2 +
-        avaliacao.av_seguranca * 1 
-      );
+    // Configuração dos pesos das avaliações
+    const pesos = {
+      av_atendimento: 5,
+      av_organizacao: 4,
+      av_digital: 3,
+      av_infraestrutura: 2,
+      av_seguranca: 1
+    };
 
-      const somaPesos = 5 + 4 + 3 + 2 + 1; // Soma dos pesos
-      const media = somaAvaliacoes / somaPesos;
+    // Calcular a média ponderada das avaliações
+    const avaliacoesComMedia = avaliacoes.map(avaliacao => {
+      const somaAvaliacoesPonderadas = Object.entries(pesos).reduce((soma, [campo, peso]) => {
+        return soma + (avaliacao[campo] * peso);
+      }, 0);
+
+      const somaPesos = Object.values(pesos).reduce((a, b) => a + b, 0);
+      const mediaPonderada = somaAvaliacoesPonderadas / somaPesos;
 
       return {
         ...avaliacao,
-        media_ponderada: parseFloat(media.toFixed(2)) // Adiciona a média calculada
+        media_ponderada: parseFloat(mediaPonderada.toFixed(2)),
+        detalhes_calculo: {
+          pesos,
+          soma_avaliacoes_ponderadas: somaAvaliacoesPonderadas,
+          soma_pesos: somaPesos
+        }
       };
     });
 
+    // Calcular estatísticas adicionais
+    const estatisticas = {
+      total_avaliacoes: avaliacoes.length,
+      media_geral: parseFloat(
+        (avaliacoesComMedia.reduce((sum, av) => sum + av.media_ponderada, 0) / avaliacoes.length)
+        .toFixed(2)
+      ),
+      primeira_avaliacao: new Date(avaliacoes[avaliacoes.length - 1].data_criacao).toISOString(),
+      ultima_avaliacao: new Date(avaliacoes[0].data_criacao).toISOString()
+    };
+
+    console.log(`Avaliações recuperadas para fórum ${id_forum} e usuário ${id_usuario}`);
+    
     res.json({
       avaliacoes: avaliacoesComMedia,
+      estatisticas,
+      meta: {
+        id_forum,
+        id_usuario
+      }
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erro ao buscar avaliações do usuário.' });
+    console.error('Erro ao buscar avaliações:', error);
+
+    // Tratamento específico de erros
+    if (error.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(500).json({
+        error: 'Erro de estrutura do banco de dados',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+
+    res.status(500).json({
+      error: 'Erro ao buscar avaliações do usuário',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+
+  } finally {
+    if (connection) {
+      try {
+        await connection.release();
+        console.log('Conexão liberada com sucesso');
+      } catch (releaseError) {
+        console.error('Erro ao liberar conexão:', releaseError);
+      }
+    }
   }
 });
 
@@ -1385,80 +1775,209 @@ app.get('/foruns_avaliacao_usuario/:id_forum/:id_usuario', async (req, res) => {
 
 
 
-//av_tribunais
-// app.post('/av_tribunais', async (req, res) => {
-//   const { id_usuario, id_tribunal, numero_protocolo, comentario, avaliacao, horario_chegada, horario_saida } = req.body;
 
-//   if (!avaliacao || avaliacao < 1 || avaliacao > 5) {
-//     return res.status(400).json({ error: "Avaliação deve estar entre 1 e 5." });
-//   }
-//   if (!numero_protocolo || numero_protocolo.length < 5 || numero_protocolo.length > 20) {
-//     return res.status(400).json({ error: "Número de protocolo deve ter entre 5 e 20 dígitos." });
-//   }
-
-//   try {
-//     await db.promise().query(
-//       'INSERT INTO av_tribunais (id_usuario, id_tribunal, numero_protocolo, comentario, avaliacao, horario_chegada, horario_saida) VALUES (?, ?, ?, ?, ?, ?, ?)',
-//       [id_usuario, id_tribunal, numero_protocolo, comentario || null, avaliacao, horario_chegada || null, horario_saida || null]
-//     );
-//     res.status(201).json({ message: 'Comentário e avaliação adicionados com sucesso.' });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ error: 'Erro ao adicionar o comentário e a avaliação.' });
-//   }
-// });
 
 app.post('/av_tribunais', async (req, res) => {
-  const { 
-    id_usuario, 
-    id_tribunal, 
-    numero_protocolo, 
-    comentario,
-    av_eficiencia,
-    av_qualidade,
-    av_infraestrutura,
-    av_tecnologia,
-    av_gestao,
-    av_transparencia,
-    av_sustentabilidade,
-    horario_chegada, 
-    horario_saida 
-  } = req.body;
-
-  // Validação dos campos de avaliação
-  const avaliacoes = [
-    av_eficiencia, av_qualidade, av_infraestrutura,
-    av_tecnologia, av_gestao, av_transparencia,
-    av_sustentabilidade
-  ];
-
-  if (avaliacoes.some(av => av < 1 || av > 5)) {
-    return res.status(400).json({ error: "Todas as avaliações devem estar entre 1 e 5." });
-  }
-
-  if (!numero_protocolo || numero_protocolo.length < 5 || numero_protocolo.length > 20) {
-    return res.status(400).json({ error: "Número de protocolo deve ter entre 5 e 20 dígitos." });
-  }
-
+  let connection;
   try {
-    await db.promise().query(
-      `INSERT INTO av_tribunais (
-        id_usuario, id_tribunal, numero_protocolo, comentario,
-        av_eficiencia, av_qualidade, av_infraestrutura,
-        av_tecnologia, av_gestao, av_transparencia,
-        av_sustentabilidade, horario_chegada, horario_saida
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id_usuario, id_tribunal, numero_protocolo, comentario,
-        av_eficiencia, av_qualidade, av_infraestrutura,
-        av_tecnologia, av_gestao, av_transparencia,
-        av_sustentabilidade, horario_chegada || null, horario_saida || null
-      ]
+    const { 
+      id_usuario, 
+      id_tribunal, 
+      numero_protocolo, 
+      comentario,
+      av_eficiencia,
+      av_qualidade,
+      av_infraestrutura,
+      av_tecnologia,
+      av_gestao,
+      av_transparencia,
+      av_sustentabilidade,
+      horario_chegada, 
+      horario_saida 
+    } = req.body;
+
+    // Verificar campos obrigatórios
+    const camposObrigatorios = {
+      id_usuario,
+      id_tribunal,
+      numero_protocolo,
+      av_eficiencia,
+      av_qualidade,
+      av_infraestrutura,
+      av_tecnologia,
+      av_gestao,
+      av_transparencia,
+      av_sustentabilidade
+    };
+
+    const camposFaltantes = Object.entries(camposObrigatorios)
+      .filter(([_, value]) => !value)
+      .map(([key]) => key);
+
+    if (camposFaltantes.length > 0) {
+      return res.status(400).json({ 
+        error: "Campos obrigatórios não preenchidos",
+        campos: camposFaltantes
+      });
+    }
+
+    // Validação das avaliações
+    const avaliacoes = {
+      av_eficiencia,
+      av_qualidade,
+      av_infraestrutura,
+      av_tecnologia,
+      av_gestao,
+      av_transparencia,
+      av_sustentabilidade
+    };
+
+    const avaliacoesInvalidas = Object.entries(avaliacoes)
+      .filter(([_, valor]) => valor < 1 || valor > 5 || !Number.isInteger(valor))
+      .map(([campo]) => campo);
+
+    if (avaliacoesInvalidas.length > 0) {
+      return res.status(400).json({ 
+        error: "Avaliações inválidas",
+        detalhes: "Todas as avaliações devem ser números inteiros entre 1 e 5",
+        campos: avaliacoesInvalidas
+      });
+    }
+
+    // Validação do protocolo
+    if (!numero_protocolo || numero_protocolo.length < 5 || numero_protocolo.length > 20) {
+      return res.status(400).json({ 
+        error: "Número de protocolo inválido",
+        detalhes: "O número de protocolo deve ter entre 5 e 20 dígitos"
+      });
+    }
+
+    // Validação dos horários
+    if (horario_chegada && horario_saida) {
+      const chegada = new Date(horario_chegada);
+      const saida = new Date(horario_saida);
+
+      if (chegada > saida) {
+        return res.status(400).json({
+          error: "Horários inválidos",
+          detalhes: "O horário de chegada deve ser anterior ao horário de saída"
+        });
+      }
+    }
+
+    // Obter conexão do pool
+    connection = await db.getConnection();
+
+    // Verificar se usuário existe
+    const [usuarios] = await connection.query(
+      'SELECT id_usuario FROM usuarios WHERE id_usuario = ?',
+      [id_usuario]
     );
-    res.status(201).json({ message: 'Avaliação adicionada com sucesso.' });
+
+    if (usuarios.length === 0) {
+      return res.status(404).json({ 
+        error: "Usuário não encontrado" 
+      });
+    }
+
+    // Verificar se tribunal existe
+    const [tribunais] = await connection.query(
+      'SELECT id_tribunal FROM tribunais WHERE id_tribunal = ?',
+      [id_tribunal]
+    );
+
+    if (tribunais.length === 0) {
+      return res.status(404).json({ 
+        error: "Tribunal não encontrado" 
+      });
+    }
+
+    // Verificar se já existe avaliação do mesmo usuário para o mesmo tribunal com o mesmo protocolo
+    const [avaliacoesExistentes] = await connection.query(
+      `SELECT id_avaliacao FROM av_tribunais 
+       WHERE id_usuario = ? AND id_tribunal = ? AND numero_protocolo = ?`,
+      [id_usuario, id_tribunal, numero_protocolo]
+    );
+
+    if (avaliacoesExistentes.length > 0) {
+      return res.status(409).json({ 
+        error: "Avaliação duplicada",
+        detalhes: "Já existe uma avaliação deste usuário para este tribunal com este protocolo"
+      });
+    }
+
+    // Inserir avaliação
+    const sql = `
+      INSERT INTO av_tribunais (
+        id_usuario, id_tribunal, numero_protocolo, comentario,
+        av_eficiencia, av_qualidade, av_infraestrutura,
+        av_tecnologia, av_gestao, av_transparencia,
+        av_sustentabilidade, horario_chegada, horario_saida,
+        data_avaliacao
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+    `;
+
+    const [result] = await connection.query(sql, [
+      id_usuario,
+      id_tribunal,
+      numero_protocolo,
+      comentario || null,
+      av_eficiencia,
+      av_qualidade,
+      av_infraestrutura,
+      av_tecnologia,
+      av_gestao,
+      av_transparencia,
+      av_sustentabilidade,
+      horario_chegada || null,
+      horario_saida || null
+    ]);
+
+    // Buscar a avaliação inserida
+    const [novaAvaliacao] = await connection.query(
+      'SELECT * FROM av_tribunais WHERE id_avaliacao = ?',
+      [result.insertId]
+    );
+
+    // Calcular média das avaliações
+    const mediaAvaliacao = Object.values(avaliacoes)
+      .reduce((acc, curr) => acc + curr, 0) / Object.keys(avaliacoes).length;
+
+    console.log(`Nova avaliação registrada - ID: ${result.insertId}, Média: ${mediaAvaliacao.toFixed(2)}`);
+
+    res.status(201).json({
+      message: "Avaliação registrada com sucesso",
+      avaliacao: novaAvaliacao[0],
+      media: mediaAvaliacao
+    });
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erro ao adicionar a avaliação.' });
+    console.error('Erro ao registrar avaliação:', error);
+
+    let statusCode = 500;
+    let errorMessage = 'Erro ao registrar avaliação';
+
+    if (error.code === 'ER_DUP_ENTRY') {
+      statusCode = 409;
+      errorMessage = 'Avaliação duplicada';
+    } else if (error.code === 'ER_NO_REFERENCED_ROW') {
+      statusCode = 404;
+      errorMessage = 'Usuário ou tribunal não encontrado';
+    }
+
+    res.status(statusCode).json({ 
+      error: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+
+  } finally {
+    if (connection) {
+      try {
+        await connection.release();
+      } catch (releaseError) {
+        console.error('Erro ao liberar conexão:', releaseError);
+      }
+    }
   }
 });
 
@@ -1468,25 +1987,78 @@ app.post('/av_tribunais', async (req, res) => {
 //       'SELECT ROUND(AVG(avaliacao),2) AS media_avaliacao FROM av_tribunais WHERE id_tribunal = ?',
 //       [req.params.id_tribunal]
 //     );
-//     res.json({ media_avaliacao: resultado[0].media_avaliacao || 0 });
 //   } catch (error) {
 //     console.error(error);
 //     res.status(500).json({ error: 'Erro ao calcular a média de avaliações.' });
 //   }
 // });
 
+// Endpoint para obter média ponderada de avaliações de um tribunal específico
 app.get('/tribunais_avaliacao/:id_tribunal', async (req, res) => {
+  let connection;
   try {
-    const [resultado] = await db.promise().query(
+    const id_tribunal = req.params.id_tribunal;
+
+    // Validar ID do tribunal
+    if (!id_tribunal || isNaN(id_tribunal)) {
+      return res.status(400).json({
+        error: 'ID do tribunal inválido',
+        receivedId: id_tribunal
+      });
+    }
+
+    // Obter conexão do pool
+    connection = await db.getConnection();
+
+    // Chamar a stored procedure
+    const [resultado] = await connection.query(
       'CALL CalcularMediaPonderadaTribunal(?)',
-      [req.params.id_tribunal]
+      [id_tribunal]
     );
-    res.json({ 
-      media_ponderada: resultado[0][0]?.media_ponderada || 0
+
+    // Verificar se há resultados
+    if (!resultado || !resultado[0] || resultado[0].length === 0) {
+      return res.status(404).json({
+        error: 'Nenhuma avaliação encontrada para este tribunal',
+        tribunalId: id_tribunal
+      });
+    }
+
+    const mediaPonderada = resultado[0][0]?.media_ponderada || 0;
+
+    // Log do resultado
+    console.log(`Média ponderada calculada para tribunal ${id_tribunal}: ${mediaPonderada}`);
+
+    res.json({
+      tribunalId: id_tribunal,
+      media_ponderada: mediaPonderada,
+      timestamp: new Date().toISOString()
     });
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erro ao calcular a média ponderada de avaliações.' });
+    console.error('Erro ao calcular média ponderada:', error);
+
+    // Tratamento específico de erros
+    if (error.code === 'ER_SP_DOES_NOT_EXIST') {
+      return res.status(500).json({
+        error: 'Stored procedure não encontrada',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+
+    res.status(500).json({
+      error: 'Erro ao calcular a média ponderada de avaliações',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+
+  } finally {
+    if (connection) {
+      try {
+        await connection.release();
+      } catch (releaseError) {
+        console.error('Erro ao liberar conexão:', releaseError);
+      }
+    }
   }
 });
 
@@ -1512,17 +2084,27 @@ app.get('/av_tribunais', (req, res) => {
 // });
 
 app.get('/av_tribunais/:id_tribunal', async (req, res) => {
+  let connection; // Variável para armazenar a conexão
   try {
-    const [resultado] = await db.promise().query(
+    // Obtém a conexão do pool
+    connection = await db.promise().getConnection();
+
+    // Executa a query
+    const [resultado] = await connection.query(
       'SELECT * FROM av_tribunais WHERE id_tribunal = ?',
       [req.params.id_tribunal]
     );
-    res.json(resultado);
+
+    res.json(resultado); // Envia a resposta
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erro ao buscar avaliações.' });
+    console.error('Erro ao buscar dados:', error);
+    res.status(500).send('Erro no servidor'); // Envia um erro apropriado
+  } finally {
+    // Libera a conexão se ela foi obtida
+    if (connection) connection.release();
   }
 });
+
 
 app.delete('/tribunais_avaliacao/:id_tribunal', (req, res) => {
   const id_tribunal = req.params.id_tribunal;
@@ -1544,22 +2126,36 @@ app.delete('/tribunais_avaliacao/:id_tribunal', (req, res) => {
 // });
 
 app.delete('/av_tribunais/:id_tribunal', async (req, res) => {
+  let connection; // Variável para armazenar a conexão
   try {
-    await db.promise().query(
+    // Obtém a conexão do pool
+    connection = await db.promise().getConnection();
+
+    // Executa a query de exclusão
+    await connection.query(
       'DELETE FROM av_tribunais WHERE id_tribunal = ?',
       [req.params.id_tribunal]
     );
-    res.json({ message: 'Avaliações deletadas com sucesso' });
+
+    res.status(200).json({ message: 'Avaliação deletada com sucesso' });
   } catch (error) {
-    console.error(error);
+    console.error('Erro ao deletar avaliações:', error);
     res.status(500).json({ error: 'Erro ao deletar avaliações' });
+  } finally {
+    // Libera a conexão se ela foi obtida
+    if (connection) connection.release();
   }
 });
 
+
 app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res) => {
+  let connection; // Variável para armazenar a conexão
   try {
+    // Obtém a conexão do pool
+    connection = await db.promise().getConnection();
+
     // Buscar todas as avaliações do usuário para o tribunal
-    const [avaliacoes] = await db.promise().query(
+    const [avaliacoes] = await connection.query(
       `SELECT 
         av_eficiencia,
         av_qualidade,
@@ -1576,40 +2172,42 @@ app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res
     if (avaliacoes.length === 0) {
       return res.json({
         avaliacoes: null,
-        message: "Usuário ainda não avaliou este tribunal"
+        message: 'Usuário ainda não avaliou este tribunal',
       });
     }
 
     // Calcular a média para cada avaliação
-    const avaliacoesComMedia = avaliacoes.map(avaliacao => {
-      const somaAvaliacoes = (
+    const avaliacoesComMedia = avaliacoes.map((avaliacao) => {
+      const somaAvaliacoes =
         avaliacao.av_eficiencia * 5 +
         avaliacao.av_qualidade * 4 +
         avaliacao.av_infraestrutura * 3 +
         avaliacao.av_tecnologia * 3 +
         avaliacao.av_gestao * 2 +
         avaliacao.av_transparencia * 2 +
-        avaliacao.av_sustentabilidade * 1
-      );
+        avaliacao.av_sustentabilidade * 1;
 
       const somaPesos = 5 + 4 + 3 + 3 + 2 + 2 + 1; // Soma dos pesos
       const media = somaAvaliacoes / somaPesos;
 
       return {
         ...avaliacao,
-        media_ponderada: parseFloat(media.toFixed(2)) // Adiciona a média calculada
+        media_ponderada: parseFloat(media.toFixed(2)), // Adiciona a média calculada
       };
     });
 
     res.json({
       avaliacoes: avaliacoesComMedia,
     });
-
   } catch (error) {
-    console.error(error);
+    console.error('Erro ao buscar avaliações do usuário:', error);
     res.status(500).json({ error: 'Erro ao buscar avaliações do usuário.' });
+  } finally {
+    // Libera a conexão se ela foi obtida
+    if (connection) connection.release();
   }
 });
+
 
 // app.post('/tribunais_avaliacao_usuario', async (req, res) => {
 //   const { id_tribunal, id_usuario, av_eficiencia, av_qualidade, av_infraestrutura, av_tecnologia, av_gestao, av_transparencia, av_sustentabilidade } = req.body;
@@ -1635,7 +2233,6 @@ app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res
 //       [id_tribunal, id_usuario, av_eficiencia, av_qualidade, av_infraestrutura, av_tecnologia, av_gestao, av_transparencia, av_sustentabilidade, parseFloat(mediaGeral.toFixed(2))]
 //     );
 
-//     res.status(201).json({ message: 'Avaliação salva com sucesso!', media_geral: parseFloat(mediaGeral.toFixed(2)) });
 //   } catch (error) {
 //     console.error(error);
 //     res.status(500).json({ error: 'Erro ao salvar avaliação do usuário.' });
@@ -1657,7 +2254,6 @@ app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res
 //       return res.json({
 //         media_geral: null,
 //         message: "Usuário ainda não avaliou este tribunal"
-//       });
 //     }
 
 //     res.json({
@@ -1688,7 +2284,6 @@ app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res
 //       'INSERT INTO av_juiz (id_usuario, id_juiz, numero_protocolo, comentario, avaliacao, horario_chegada, horario_saida) VALUES (?, ?, ?, ?, ?, ?, ?)',
 //       [id_usuario, id_juiz, numero_protocolo, comentario || null, avaliacao, horario_chegada || null, horario_saida || null]
 //     );
-//     res.status(201).json({ message: 'Comentário e avaliação adicionados com sucesso.' });
 //   } catch (error) {
 //     console.error(error);
 //     res.status(500).json({ error: 'Erro ao adicionar o comentário e a avaliação.' });
@@ -1696,19 +2291,19 @@ app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res
 // });
 
 app.post('/av_juiz', async (req, res) => {
-  const { 
-    id_usuario, 
-    id_juiz, 
-    numero_processo, 
+  const {
+    id_usuario,
+    id_juiz,
+    numero_processo,
     comentario,
     av_produtividade,
     av_fundamentacao,
     av_pontualidade,
     av_organizacao,
     av_atendimento,
-    horario_chegada, 
+    horario_chegada,
     horario_saida,
-    data_audiencia 
+    data_audiencia,
   } = req.body;
 
   // Validação dos campos de avaliação
@@ -1717,19 +2312,28 @@ app.post('/av_juiz', async (req, res) => {
     av_fundamentacao,
     av_pontualidade,
     av_organizacao,
-    av_atendimento
+    av_atendimento,
   ];
 
-  if (avaliacoes.some(av => av < 1 || av > 5)) {
-    return res.status(400).json({ error: "Todas as avaliações devem estar entre 1 e 5." });
+  if (avaliacoes.some((av) => av < 1 || av > 5)) {
+    return res
+      .status(400)
+      .json({ error: 'Todas as avaliações devem estar entre 1 e 5.' });
   }
 
   if (!numero_processo || numero_processo.length < 5 || numero_processo.length > 20) {
-    return res.status(400).json({ error: "Número do processo deve ter entre 5 e 20 caracteres." });
+    return res
+      .status(400)
+      .json({ error: 'Número do processo deve ter entre 5 e 20 caracteres.' });
   }
 
+  let connection; // Variável para gerenciar a conexão
   try {
-    await db.promise().query(
+    // Obtém a conexão do pool
+    connection = await db.promise().getConnection();
+
+    // Executa o comando de inserção
+    await connection.query(
       `INSERT INTO av_juiz (
         id_usuario, id_juiz, numero_processo, comentario,
         av_produtividade, av_fundamentacao, av_pontualidade,
@@ -1737,18 +2341,31 @@ app.post('/av_juiz', async (req, res) => {
         horario_chegada, horario_saida, data_audiencia
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        id_usuario, id_juiz, numero_processo, comentario,
-        av_produtividade, av_fundamentacao, av_pontualidade,
-        av_organizacao, av_atendimento,
-        horario_chegada || null, horario_saida || null, data_audiencia || null
+        id_usuario,
+        id_juiz,
+        numero_processo,
+        comentario,
+        av_produtividade,
+        av_fundamentacao,
+        av_pontualidade,
+        av_organizacao,
+        av_atendimento,
+        horario_chegada || null,
+        horario_saida || null,
+        data_audiencia || null,
       ]
     );
-    res.status(201).json({ message: 'Avaliação do juiz adicionada com sucesso.' });
+
+    res.status(201).json({ message: 'Avaliação adicionada com sucesso!' });
   } catch (error) {
-    console.error(error);
+    console.error('Erro ao adicionar a avaliação do juiz:', error);
     res.status(500).json({ error: 'Erro ao adicionar a avaliação do juiz.' });
+  } finally {
+    // Libera a conexão se ela foi obtida
+    if (connection) connection.release();
   }
 });
+
 
 
 // app.get('/juiz_avaliacao/:id_juiz', async (req, res) => {
@@ -1757,7 +2374,6 @@ app.post('/av_juiz', async (req, res) => {
 //       'SELECT ROUND(AVG(avaliacao),2) AS media_avaliacao FROM av_juiz WHERE id_juiz = ?',
 //       [req.params.id_juiz]
 //     );
-//     res.json({ media_avaliacao: resultado[0].media_avaliacao || 0 });
 //   } catch (error) {
 //     console.error(error);
 //     res.status(500).json({ error: 'Erro ao calcular a média de avaliações.' });
@@ -1772,17 +2388,27 @@ app.post('/av_juiz', async (req, res) => {
 // });
 
 app.get('/juiz_avaliacao/:id_juiz', async (req, res) => {
+  let connection; // Variável para gerenciar a conexão
   try {
-    const [resultado] = await db.promise().query(
+    // Obtém a conexão do pool
+    connection = await db.promise().getConnection();
+
+    // Executa o procedimento armazenado para calcular a média ponderada
+    const [resultado] = await connection.query(
       'CALL CalcularMediaPonderadaJuiz(?)',
       [req.params.id_juiz]
     );
-    res.json({ 
-      media_ponderada: resultado[0][0]?.media_ponderada || 0
+
+    // Retorna a média ponderada ou 0 caso não exista
+    res.json({
+      media_ponderada: resultado[0][0]?.media_ponderada || 0,
     });
   } catch (error) {
-    console.error(error);
+    console.error('Erro ao calcular a média ponderada de avaliações:', error);
     res.status(500).json({ error: 'Erro ao calcular a média ponderada de avaliações.' });
+  } finally {
+    // Libera a conexão se ela foi obtida
+    if (connection) connection.release();
   }
 });
 
@@ -1819,9 +2445,13 @@ app.delete('/av_juiz/:id_juiz', (req, res) => {
 });
 
 app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
+  let connection; // Variável para gerenciar a conexão
   try {
+    // Obtém a conexão do pool
+    connection = await db.promise().getConnection();
+
     // Buscar as avaliações individuais do usuário
-    const [avaliacoes] = await db.promise().query(
+    const [avaliacoes] = await connection.query(
       `SELECT 
         av_produtividade,    
         av_fundamentacao,      
@@ -1848,7 +2478,7 @@ app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
         avaliacao.av_fundamentacao * 4 +
         avaliacao.av_pontualidade * 3 +
         avaliacao.av_organizacao * 2 +
-        avaliacao.av_atendimento * 1 
+        avaliacao.av_atendimento * 1
       );
 
       const somaPesos = 5 + 4 + 3 + 2 + 1; // Soma dos pesos
@@ -1863,10 +2493,12 @@ app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
     res.json({
       avaliacoes: avaliacoesComMedia,
     });
-
   } catch (error) {
-    console.error(error);
+    console.error('Erro ao buscar avaliações do usuário:', error);
     res.status(500).json({ error: 'Erro ao buscar avaliações do usuário.' });
+  } finally {
+    // Libera a conexão se ela foi obtida
+    if (connection) connection.release();
   }
 });
 
@@ -1883,7 +2515,6 @@ app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
 //       'INSERT INTO av_mediador (id_usuario, id_mediador, comentario, avaliacao, horario_chegada, horario_saida) VALUES (?, ?, ?, ?, ?, ?)',
 //       [id_usuario, id_mediador, comentario || null, avaliacao, horario_chegada || null, horario_saida || null]
 //     );
-//     res.status(201).json({ message: 'Comentário e avaliação adicionados com sucesso.' });
 //   } catch (error) {
 //     console.error(error);
 //     res.status(500).json({ error: 'Erro ao adicionar o comentário e a avaliação.' });
@@ -1896,7 +2527,6 @@ app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
 //       'SELECT ROUND(AVG(avaliacao),2) AS media_avaliacao FROM av_mediador WHERE id_mediador = ?',
 //       [req.params.id_mediador]
 //     );
-//     res.json({ media_avaliacao: resultado[0].media_avaliacao || 0 });
 //   } catch (error) {
 //     console.error(error);
 //     res.status(500).json({ error: 'Erro ao calcular a média de avaliações.' });
@@ -1943,8 +2573,13 @@ app.post('/av_mediador', async (req, res) => {
     return res.status(400).json({ error: "Número do processo deve ter entre 5 e 20 caracteres." });
   }
 
+  let connection; // Variável para gerenciar a conexão
   try {
-    await db.promise().query(
+    // Obtém a conexão do pool
+    connection = await db.promise().getConnection();
+
+    // Executa o comando de inserção
+    await connection.query(
       `INSERT INTO av_mediador (
         id_usuario, id_mediador, numero_processo, comentario,
         av_satisfacao, av_imparcialidade, av_conhecimento, av_pontualidade, av_organizacao,
@@ -1956,25 +2591,39 @@ app.post('/av_mediador', async (req, res) => {
         horario_chegada || null, horario_saida || null, data_criacao || null
       ]
     );
-    res.status(201).json({ message: 'Avaliação do mediador adicionada com sucesso.' });
+
+    res.status(201).json({ message: 'Avaliação do mediador adicionada com sucesso!' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erro ao adicionar a avaliação do juiz.' });
+    console.error('Erro ao adicionar a avaliação do mediador:', error);
+    res.status(500).json({ error: 'Erro ao adicionar a avaliação do mediador.' });
+  } finally {
+    // Libera a conexão se ela foi obtida
+    if (connection) connection.release();
   }
 });
 
 app.get('/mediador_avaliacao/:id_mediador', async (req, res) => {
+  let connection; // Variável para gerenciar a conexão
   try {
-    const [resultado] = await db.promise().query(
+    // Obtém a conexão do pool
+    connection = await db.promise().getConnection();
+
+    // Executa o procedimento armazenado para calcular a média ponderada do mediador
+    const [resultado] = await connection.query(
       'CALL CalcularMediaPonderadaMediador(?)',
       [req.params.id_mediador]
     );
+
+    // Retorna a média ponderada ou 0 caso não exista
     res.json({ 
       media_ponderada: resultado[0][0]?.media_ponderada || 0
     });
   } catch (error) {
-    console.error(error);
+    console.error('Erro ao calcular a média ponderada de avaliações:', error);
     res.status(500).json({ error: 'Erro ao calcular a média ponderada de avaliações.' });
+  } finally {
+    // Libera a conexão se ela foi obtida
+    if (connection) connection.release();
   }
 });
 
@@ -1999,9 +2648,13 @@ app.delete('/av_mediador/:id_mediador', (req, res) => {
 });
 
 app.get('/mediador_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res) => {
+  let connection; // Variável para gerenciar a conexão
   try {
+    // Obtém a conexão do pool
+    connection = await db.promise().getConnection();
+
     // Buscar as avaliações individuais do usuário
-    const [avaliacoes] = await db.promise().query(
+    const [avaliacoes] = await connection.query(
       `SELECT 
         av_satisfacao,
         av_imparcialidade,
@@ -2028,7 +2681,7 @@ app.get('/mediador_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res)
         avaliacao.av_imparcialidade * 4 +
         avaliacao.av_conhecimento * 3 +
         avaliacao.av_pontualidade * 2 +
-        avaliacao.av_organizacao * 1 
+        avaliacao.av_organizacao * 1
       );
 
       const somaPesos = 5 + 4 + 3 + 2 + 1; // Soma dos pesos
@@ -2045,8 +2698,11 @@ app.get('/mediador_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res)
     });
 
   } catch (error) {
-    console.error(error);
+    console.error('Erro ao buscar avaliações do usuário:', error);
     res.status(500).json({ error: 'Erro ao buscar avaliações do usuário.' });
+  } finally {
+    // Libera a conexão se ela foi obtida
+    if (connection) connection.release();
   }
 });
 
@@ -2083,6 +2739,7 @@ app.get('/av_mediador/:id_mediador', (req, res) => {
 
 //advocacia
 app.post('/av_advocacia', async (req, res) => {
+  let connection; // Variável para gerenciar a conexão
   const { 
     id_usuario, 
     id_advocacia, 
@@ -2115,7 +2772,11 @@ app.post('/av_advocacia', async (req, res) => {
   }
 
   try {
-    await db.promise().query(
+    // Obtém a conexão do pool
+    connection = await db.promise().getConnection();
+
+    // Insere a avaliação no banco de dados
+    await connection.query(
       `INSERT INTO av_advocacia (
         id_usuario, id_advocacia, numero_processo, comentario,
         av_eficiencia_processual, av_qualidade_tecnica, av_etica_profissional,
@@ -2127,27 +2788,40 @@ app.post('/av_advocacia', async (req, res) => {
         av_comunicacao, av_inovacao, horario_chegada || null, horario_saida || null
       ]
     );
-    res.status(201).json({ message: 'Avaliação adicionada com sucesso.' });
+
+    res.status(201).json({ message: 'Avaliação adicionada com sucesso!' });
   } catch (error) {
-    console.error(error);
+    console.error('Erro ao adicionar a avaliação:', error);
     res.status(500).json({ error: 'Erro ao adicionar a avaliação.' });
+  } finally {
+    // Libera a conexão se ela foi obtida
+    if (connection) connection.release();
   }
 });
 
 app.get('/advocacia_avaliacao/:id_advocacia', async (req, res) => {
+  let connection; // Variável para gerenciar a conexão
   try {
-    const [resultado] = await db.promise().query(
+    // Obtém a conexão do pool
+    connection = await db.promise().getConnection();
+
+    const [resultado] = await connection.query(
       'CALL CalcularMediaPonderadaAdvocacia(?)',
       [req.params.id_advocacia]
     );
+
     res.json({ 
       media_ponderada: resultado[0][0]?.media_ponderada || 0
     });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao calcular a média ponderada de avaliações.' });
+  } finally {
+    // Libera a conexão se ela foi obtida
+    if (connection) connection.release();
   }
 });
+
 
 app.get('/av_advocacia', (req, res) => {
   const sql = 'SELECT * FROM av_advocacia';
@@ -2191,9 +2865,13 @@ app.delete('/av_advocacia/:id_advocacia', (req, res) => {
 });
 
 app.get('/advocacia_avaliacao_usuario/:id_advocacia/:id_usuario', async (req, res) => {
+  let connection; // Variável para gerenciar a conexão
   try {
+    // Obtém a conexão do pool
+    connection = await db.promise().getConnection();
+
     // Buscar as avaliações individuais do usuário
-    const [avaliacoes] = await db.promise().query(
+    const [avaliacoes] = await connection.query(
       `SELECT 
         av_eficiencia_processual,
         av_qualidade_tecnica,
@@ -2239,6 +2917,9 @@ app.get('/advocacia_avaliacao_usuario/:id_advocacia/:id_usuario', async (req, re
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar avaliações do usuário.' });
+  } finally {
+    // Libera a conexão se ela foi obtida
+    if (connection) connection.release();
   }
 });
 
@@ -2269,8 +2950,12 @@ app.post('/av_portal', async (req, res) => {
       return res.status(400).json({ error: "Todas as avaliações devem estar entre 1 e 5." });
   }
 
+  let connection; // Variável para gerenciar a conexão
   try {
-      await db.promise().query(
+      // Obtém a conexão do pool
+      connection = await db.promise().getConnection();
+
+      await connection.query(
           `INSERT INTO av_portal (
               id_usuario, id_portal, comentario,
               av_seguranca_sistema, av_usabilidade, av_integracao,
@@ -2282,27 +2967,42 @@ app.post('/av_portal', async (req, res) => {
               av_atualizacao, av_acessibilidade
           ]
       );
-      res.status(201).json({ message: 'Avaliação adicionada com sucesso.' });
+
+      res.status(201).json({ message: 'Avaliação adicionada com sucesso!' });
+
   } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Erro ao adicionar a avaliação.' });
+  } finally {
+      // Libera a conexão se ela foi obtida
+      if (connection) connection.release();
   }
 });
 
 app.get('/portal_avaliacao/:id_portal', async (req, res) => {
+  let connection; // Variável para gerenciar a conexão
   try {
-    const [resultado] = await db.promise().query(
+    // Obtém a conexão do pool
+    connection = await db.promise().getConnection();
+
+    const [resultado] = await connection.query(
       'CALL CalcularMediaPonderadaPortal(?)',
       [req.params.id_portal]
     );
+
     res.json({ 
       media_ponderada: resultado[0][0]?.media_ponderada || 0
     });
+
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao calcular a média ponderada de avaliações.' });
+  } finally {
+    // Libera a conexão se ela foi obtida
+    if (connection) connection.release();
   }
 });
+
 
 app.get('/av_portal', (req, res) => {
   const sql = 'SELECT * FROM av_portal';
@@ -2344,10 +3044,15 @@ app.delete('/av_portal/:id_portal', (req, res) => {
   });
 });
 
-app.get('/portal_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res) => {
+app.get('/portal_avaliacao_usuario/:id_portal/:id_usuario', async (req, res) => {
+  let connection; // Variável para gerenciar a conexão
+
   try {
+    // Obtém a conexão do pool
+    connection = await db.promise().getConnection();
+
     // Buscar as avaliações individuais do usuário
-    const [avaliacoes] = await db.promise().query(
+    const [avaliacoes] = await connection.query(
       `SELECT 
         av_seguranca_sistema,
         av_usabilidade,
@@ -2374,7 +3079,7 @@ app.get('/portal_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res) =
         avaliacao.av_usabilidade * 4 +
         avaliacao.av_integracao * 3 +
         avaliacao.av_atualizacao * 2 +
-        avaliacao.av_acessibilidade * 1 
+        avaliacao.av_acessibilidade * 1
       );
 
       const somaPesos = 5 + 4 + 3 + 2 + 1; // Soma dos pesos
@@ -2393,8 +3098,12 @@ app.get('/portal_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res) =
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar avaliações do usuário.' });
+  } finally {
+    // Libera a conexão se ela foi obtida
+    if (connection) connection.release();
   }
 });
+
 
 
 
