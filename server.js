@@ -40,11 +40,11 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const type = req.originalUrl.split('/')[1]; // Pega 'foruns', 'tribunais', etc.
     const uploadPath = path.join(__dirname, 'uploads', type);
-    
+
     if (!fs.existsSync(uploadPath)) {
       fs.mkdirSync(uploadPath, { recursive: true });
     }
-    
+
     cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
@@ -53,14 +53,14 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ 
-  storage: storage, 
+const upload = multer({
+  storage: storage,
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const filetypes = /jpeg|jpg|png|gif/;
     const mimetype = filetypes.test(file.mimetype);
     const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-    
+
     if (mimetype && extname) {
       return cb(null, true);
     } else {
@@ -69,7 +69,17 @@ const upload = multer({
   }
 });
 
-// Rota para upload de imagens genérica
+// Função auxiliar para deletar arquivo de imagem
+const deleteImage = (imagePath) => {
+  if (!imagePath) return;
+
+  const fullPath = path.join(__dirname, imagePath);
+  if (fs.existsSync(fullPath)) {
+    fs.unlinkSync(fullPath);
+  }
+};
+
+// Rota para upload de imagens genéricas
 app.post('/upload/:type', upload.single('image'), (req, res) => {
   if (req.file) {
     res.send({ message: 'Arquivo enviado com sucesso!', file: req.file });
@@ -81,26 +91,22 @@ app.post('/upload/:type', upload.single('image'), (req, res) => {
 // Servir arquivos estáticos
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Função auxiliar para deletar arquivo de imagem
-const deleteImage = (imagePath) => {
-  if (!imagePath) return;
-  
-  const fullPath = path.join(__dirname, imagePath);
-  if (fs.existsSync(fullPath)) {
-    fs.unlinkSync(fullPath);
-  }
-};
-
 // ROTAS PARA FÓRUNS
-app.get('/foruns', (req, res) => {
-  const sql = 'SELECT * FROM foruns';
-  db.query(sql, (err, result) => {
-    if (err) throw err;
+app.get('/foruns', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM foruns');
     res.send(result);
-  });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: 'Erro ao buscar fóruns' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.post('/foruns', upload.single('imagem'), (req, res) => {
+app.post('/foruns', upload.single('imagem'), async (req, res) => {
   const { nome, cidade, estado, endereco, cep, avaliacao_media } = req.body;
   const imagem = req.file ? `/uploads/foruns/${req.file.filename}` : null;
 
@@ -108,135 +114,165 @@ app.post('/foruns', upload.single('imagem'), (req, res) => {
     return res.status(400).send({ error: 'Todos os campos obrigatórios devem ser preenchidos' });
   }
 
-  const sql = 'INSERT INTO foruns (nome, cidade, estado, endereco, cep, avaliacao_media, imagem) VALUES (?, ?, ?, ?, ?, ?, ?)';
-  db.query(sql, [nome, cidade, estado, endereco, cep, avaliacao_media, imagem], (err, result) => {
-    if (err) {
-      console.error('Erro ao inserir fórum:', err);
-      return res.status(500).send({ error: 'Erro ao inserir fórum' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query(
+      'INSERT INTO foruns (nome, cidade, estado, endereco, cep, avaliacao_media, imagem) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [nome, cidade, estado, endereco, cep, avaliacao_media, imagem]
+    );
     res.send({ ...result, imagem });
-  });
+  } catch (err) {
+    console.error('Erro ao inserir fórum:', err);
+    res.status(500).send({ error: 'Erro ao inserir fórum' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.put('/foruns/:id', upload.single('imagem'), (req, res) => {
+app.put('/foruns/:id', upload.single('imagem'), async (req, res) => {
   const id = req.params.id;
   const { nome, cidade, estado, endereco, cep, avaliacao_media } = req.body;
-  
-  db.query('SELECT imagem FROM foruns WHERE id_forum = ?', [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar fórum' });
-    }
+
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT imagem FROM foruns WHERE id_forum = ?', [id]);
 
     const antigaImagem = result[0]?.imagem;
     const novaImagem = req.file ? `/uploads/foruns/${req.file.filename}` : antigaImagem;
 
     const sql = `
-      UPDATE foruns 
+      UPDATE foruns
       SET nome = ?, cidade = ?, estado = ?, endereco = ?, 
           cep = ?, avaliacao_media = ?, imagem = ?
       WHERE id_forum = ?
     `;
 
-    db.query(
+    await connection.query(
       sql, 
-      [nome, cidade, estado, endereco, cep, avaliacao_media, novaImagem, id],
-      (err, result) => {
-        if (err) {
-          return res.status(500).send({ error: 'Erro ao atualizar fórum' });
-        }
-
-        if (req.file && antigaImagem) {
-          deleteImage(antigaImagem);
-        }
-
-        res.send({ message: 'Fórum atualizado com sucesso' });
-      }
+      [nome, cidade, estado, endereco, cep, avaliacao_media, novaImagem, id]
     );
-  });
+
+    if (req.file && antigaImagem) {
+      deleteImage(antigaImagem);
+    }
+
+    res.send({ message: 'Fórum atualizado com sucesso' });
+  } catch (err) {
+    console.error('Erro ao atualizar fórum:', err);
+    res.status(500).send({ error: 'Erro ao atualizar fórum' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.delete('/foruns/:id', (req, res) => {
+app.delete('/foruns/:id', async (req, res) => {
   const id = req.params.id;
 
-  // Primeiro, buscar a imagem do forum
-  db.query('SELECT imagem FROM foruns WHERE id_forum = ?', [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar forum' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT imagem FROM foruns WHERE id_forum = ?', [id]);
 
     const imagem = result[0]?.imagem;
 
     // Deletar as avaliações associadas
-    db.query('  FROM av_foruns WHERE id_forum = ?', [id], (err, result) => {
-      if (err) {
-        return res.status(500).send({ error: 'Erro ao deletar avaliações associadas' });
-      }
+    await connection.query('DELETE FROM av_foruns WHERE id_forum = ?', [id]);
 
-      // Deletar o forum
-      db.query('DELETE FROM foruns WHERE id_forum = ?', [id], (err, result) => {
-        if (err) {
-          return res.status(500).send({ error: 'Erro ao deletar forum' });
-        }
+    // Deletar o fórum
+    await connection.query('DELETE FROM foruns WHERE id_forum = ?', [id]);
 
-        // Se existir uma imagem, deletá-la
-        if (imagem) {
-          deleteImage(imagem);
-        }
+    // Se existir uma imagem, deletá-la
+    if (imagem) {
+      deleteImage(imagem);
+    }
 
-        res.send({ message: 'Forum, suas avaliações e imagem deletados com sucesso' });
-      });
-    });
-  });
+    res.send({ message: 'Fórum, suas avaliações e imagem deletados com sucesso' });
+  } catch (err) {
+    console.error('Erro ao deletar fórum:', err);
+    res.status(500).send({ error: 'Erro ao deletar fórum' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.get('/foruns/:id', (req, res) => {
+app.get('/foruns/:id', async (req, res) => {
   const id = req.params.id;
-  const sql = 'SELECT * FROM foruns WHERE id_forum = ?';
-  db.query(sql, [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar forum' });
-    }
+
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM foruns WHERE id_forum = ?', [id]);
+
     if (result.length === 0) {
-      return res.status(404).send({ error: 'forum não encontrado' });
+      return res.status(404).send({ error: 'Fórum não encontrado' });
     }
+
     res.send(result[0]);
-  });
+  } catch (err) {
+    console.error('Erro ao buscar fórum:', err);
+    res.status(500).send({ error: 'Erro ao buscar fórum' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
 // ROTAS PARA TRIBUNAIS
-app.get('/tribunais', (req, res) => {
-  const sql = 'SELECT * FROM tribunais';
-  db.query(sql, (err, result) => {
-    if (err) throw err;
+app.get('/tribunais', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM tribunais');
     res.send(result);
-  });
+  } catch (err) {
+    console.error('Erro ao buscar tribunais:', err);
+    res.status(500).send({ error: 'Erro ao buscar tribunais' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.get('/tokens', (req, res) => {
-  const sql = 'SELECT * FROM user_tokens';
-  db.query(sql, (err, result) => {
-    if (err) throw err;
+app.get('/tokens', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM user_tokens');
     res.send(result);
-  });
+  } catch (err) {
+    console.error('Erro ao buscar tokens:', err);
+    res.status(500).send({ error: 'Erro ao buscar tokens' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.get('/tribunais/:id', (req, res) => {
+
+app.get('/tribunais/:id', async (req, res) => {
   const id = req.params.id;
-  const sql = 'SELECT * FROM tribunais WHERE id_tribunal = ?';
-  db.query(sql, [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar tribunal' });
-    }
+  let connection;
+
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM tribunais WHERE id_tribunal = ?', [id]);
+
     if (result.length === 0) {
       return res.status(404).send({ error: 'Tribunal não encontrado' });
     }
+
     res.send(result[0]);
-  });
+  } catch (err) {
+    console.error('Erro ao buscar tribunal:', err);
+    res.status(500).send({ error: 'Erro ao buscar tribunal' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
 
 
-app.post('/tribunais', upload.single('imagem'), (req, res) => {
+
+app.post('/tribunais', upload.single('imagem'), async (req, res) => {
   const { nome, cidade, estado, endereco, cep, avaliacao_media } = req.body;
   const imagem = req.file ? `/uploads/tribunais/${req.file.filename}` : null;
 
@@ -244,24 +280,30 @@ app.post('/tribunais', upload.single('imagem'), (req, res) => {
     return res.status(400).send({ error: 'Todos os campos obrigatórios devem ser preenchidos' });
   }
 
-  const sql = 'INSERT INTO tribunais (nome, cidade, estado, endereco, cep, avaliacao_media, imagem) VALUES (?, ?, ?, ?, ?, ?, ?)';
-  db.query(sql, [nome, cidade, estado, endereco, cep, avaliacao_media, imagem], (err, result) => {
-    if (err) {
-      console.error('Erro ao inserir tribunal:', err);
-      return res.status(500).send({ error: 'Erro ao inserir tribunal' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const sql = 'INSERT INTO tribunais (nome, cidade, estado, endereco, cep, avaliacao_media, imagem) VALUES (?, ?, ?, ?, ?, ?, ?)';
+    const [result] = await connection.query(sql, [nome, cidade, estado, endereco, cep, avaliacao_media, imagem]);
+
     res.send({ ...result, imagem });
-  });
+  } catch (err) {
+    console.error('Erro ao inserir tribunal:', err);
+    res.status(500).send({ error: 'Erro ao inserir tribunal' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.put('/tribunais/:id', upload.single('imagem'), (req, res) => {
+
+app.put('/tribunais/:id', upload.single('imagem'), async (req, res) => {
   const id = req.params.id;
   const { nome, cidade, estado, endereco, cep, avaliacao_media } = req.body;
-  
-  db.query('SELECT imagem FROM tribunais WHERE id_tribunal = ?', [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar tribunal' });
-    }
+
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT imagem FROM tribunais WHERE id_tribunal = ?', [id]);
 
     const antigaImagem = result[0]?.imagem;
     const novaImagem = req.file ? `/uploads/tribunais/${req.file.filename}` : antigaImagem;
@@ -272,83 +314,91 @@ app.put('/tribunais/:id', upload.single('imagem'), (req, res) => {
           cep = ?, avaliacao_media = ?, imagem = ?
       WHERE id_tribunal = ?
     `;
+    await connection.query(sql, [nome, cidade, estado, endereco, cep, avaliacao_media, novaImagem, id]);
 
-    db.query(
-      sql, 
-      [nome, cidade, estado, endereco, cep, avaliacao_media, novaImagem, id],
-      (err, result) => {
-        if (err) {
-          return res.status(500).send({ error: 'Erro ao atualizar tribunal' });
-        }
+    if (req.file && antigaImagem) {
+      deleteImage(antigaImagem);
+    }
 
-        if (req.file && antigaImagem) {
-          deleteImage(antigaImagem);
-        }
-
-        res.send({ message: 'Tribunal atualizado com sucesso' });
-      }
-    );
-  });
+    res.send({ message: 'Tribunal atualizado com sucesso' });
+  } catch (err) {
+    console.error('Erro ao atualizar tribunal:', err);
+    res.status(500).send({ error: 'Erro ao atualizar tribunal' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.delete('/tribunais/:id', (req, res) => {
-  const id = req.params.id;
 
-  // Primeiro, buscar a imagem do tribunal
-  db.query('SELECT imagem FROM tribunais WHERE id_tribunal = ?', [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar tribunal' });
-    }
+app.delete('/tribunais/:id', async (req, res) => {
+  const id = req.params.id;
+  let connection;
+
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT imagem FROM tribunais WHERE id_tribunal = ?', [id]);
 
     const imagem = result[0]?.imagem;
 
     // Deletar as avaliações associadas
-    db.query('DELETE FROM av_tribunais WHERE id_tribunal = ?', [id], (err, result) => {
-      if (err) {
-        return res.status(500).send({ error: 'Erro ao deletar avaliações associadas' });
-      }
+    await connection.query('DELETE FROM av_tribunais WHERE id_tribunal = ?', [id]);
 
-      // Deletar o tribunal
-      db.query('DELETE FROM tribunais WHERE id_tribunal = ?', [id], (err, result) => {
-        if (err) {
-          return res.status(500).send({ error: 'Erro ao deletar tribunal' });
-        }
+    // Deletar o tribunal
+    await connection.query('DELETE FROM tribunais WHERE id_tribunal = ?', [id]);
 
-        // Se existir uma imagem, deletá-la
-        if (imagem) {
-          deleteImage(imagem);
-        }
+    // Se existir uma imagem, deletá-la
+    if (imagem) {
+      deleteImage(imagem);
+    }
 
-        res.send({ message: 'Tribunal, suas avaliações e imagem deletados com sucesso' });
-      });
-    });
-  });
+    res.send({ message: 'Tribunal, suas avaliações e imagem deletados com sucesso' });
+  } catch (err) {
+    console.error('Erro ao deletar tribunal:', err);
+    res.status(500).send({ error: 'Erro ao deletar tribunal' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
+
 
 // ROTAS PARA JUIZ
-app.get('/juiz', (req, res) => {
-  const sql = 'SELECT * FROM juiz';
-  db.query(sql, (err, result) => {
-    if (err) throw err;
+app.get('/juiz', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM juiz');
     res.send(result);
-  });
+  } catch (err) {
+    console.error('Erro ao buscar juízes:', err);
+    res.status(500).send({ error: 'Erro ao buscar juízes' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.get('/juiz/:id', (req, res) => {
+
+app.get('/juiz/:id', async (req, res) => {
   const id = req.params.id;
-  const sql = 'SELECT * FROM juiz WHERE id_juiz = ?';
-  db.query(sql, [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar juiz' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM juiz WHERE id_juiz = ?', [id]);
+
     if (result.length === 0) {
-      return res.status(404).send({ error: 'juiz não encontrado' });
+      return res.status(404).send({ error: 'Juiz não encontrado' });
     }
+    
     res.send(result[0]);
-  });
+  } catch (err) {
+    console.error('Erro ao buscar juiz:', err);
+    res.status(500).send({ error: 'Erro ao buscar juiz' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.post('/juiz', upload.single('imagem'), (req, res) => {
+
+app.post('/juiz', upload.single('imagem'), async (req, res) => {
   const { nome, tempo_servico, casos_julgados, avaliacao_media } = req.body;
   const imagem = req.file ? `/uploads/juiz/${req.file.filename}` : null;
 
@@ -356,24 +406,29 @@ app.post('/juiz', upload.single('imagem'), (req, res) => {
     return res.status(400).send({ error: 'Todos os campos obrigatórios devem ser preenchidos' });
   }
 
-  const sql = 'INSERT INTO juiz (nome, tempo_servico, casos_julgados, avaliacao_media, imagem) VALUES (?, ?, ?, ?, ?)';
-  db.query(sql, [nome, tempo_servico, casos_julgados, avaliacao_media, imagem], (err, result) => {
-    if (err) {
-      console.error('Erro ao inserir juiz:', err);
-      return res.status(500).send({ error: 'Erro ao inserir juiz' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const sql = 'INSERT INTO juiz (nome, tempo_servico, casos_julgados, avaliacao_media, imagem) VALUES (?, ?, ?, ?, ?)';
+    const [result] = await connection.query(sql, [nome, tempo_servico, casos_julgados, avaliacao_media, imagem]);
+
     res.send({ ...result, imagem });
-  });
+  } catch (err) {
+    console.error('Erro ao inserir juiz:', err);
+    res.status(500).send({ error: 'Erro ao inserir juiz' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.put('/juiz/:id', upload.single('imagem'), (req, res) => {
+app.put('/juiz/:id', upload.single('imagem'), async (req, res) => {
   const id = req.params.id;
   const { nome, tempo_servico, casos_julgados, avaliacao_media } = req.body;
-  
-  db.query('SELECT imagem FROM juiz WHERE id_juiz = ?', [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar juiz' });
-    }
+
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT imagem FROM juiz WHERE id_juiz = ?', [id]);
 
     const antigaImagem = result[0]?.imagem;
     const novaImagem = req.file ? `/uploads/juiz/${req.file.filename}` : antigaImagem;
@@ -384,84 +439,89 @@ app.put('/juiz/:id', upload.single('imagem'), (req, res) => {
           avaliacao_media = ?, imagem = ?
       WHERE id_juiz = ?
     `;
+    await connection.query(sql, [nome, tempo_servico, casos_julgados, avaliacao_media, novaImagem, id]);
 
-    db.query(
-      sql, 
-      [nome, tempo_servico, casos_julgados, avaliacao_media, novaImagem, id],
-      (err, result) => {
-        if (err) {
-          return res.status(500).send({ error: 'Erro ao atualizar juiz' });
-        }
+    if (req.file && antigaImagem) {
+      deleteImage(antigaImagem);
+    }
 
-        if (req.file && antigaImagem) {
-          deleteImage(antigaImagem);
-        }
-
-        res.send({ message: 'Juiz atualizado com sucesso' });
-      }
-    );
-  });
+    res.send({ message: 'Juiz atualizado com sucesso' });
+  } catch (err) {
+    console.error('Erro ao atualizar juiz:', err);
+    res.status(500).send({ error: 'Erro ao atualizar juiz' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.delete('/juiz/:id', (req, res) => {
-  const id = req.params.id;
 
-  // Primeiro, buscar a imagem do juiz
-  db.query('SELECT imagem FROM juiz WHERE id_juiz = ?', [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar juiz' });
-    }
+app.delete('/juiz/:id', async (req, res) => {
+  const id = req.params.id;
+  let connection;
+
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT imagem FROM juiz WHERE id_juiz = ?', [id]);
 
     const imagem = result[0]?.imagem;
 
     // Deletar as avaliações associadas
-    db.query('DELETE FROM av_juiz WHERE id_juiz = ?', [id], (err, result) => {
-      if (err) {
-        return res.status(500).send({ error: 'Erro ao deletar avaliações associadas' });
-      }
+    await connection.query('DELETE FROM av_juiz WHERE id_juiz = ?', [id]);
 
-      // Deletar o juiz
-      db.query('DELETE FROM juiz WHERE id_juiz = ?', [id], (err, result) => {
-        if (err) {
-          return res.status(500).send({ error: 'Erro ao deletar juiz' });
-        }
+    // Deletar o juiz
+    await connection.query('DELETE FROM juiz WHERE id_juiz = ?', [id]);
 
-        // Se existir uma imagem, deletá-la
-        if (imagem) {
-          deleteImage(imagem);
-        }
+    // Se existir uma imagem, deletá-la
+    if (imagem) {
+      deleteImage(imagem);
+    }
 
-        res.send({ message: 'Juiz, suas avaliações e imagem deletados com sucesso' });
-      });
-    });
-  });
+    res.send({ message: 'Juiz, suas avaliações e imagem deletados com sucesso' });
+  } catch (err) {
+    console.error('Erro ao deletar juiz:', err);
+    res.status(500).send({ error: 'Erro ao deletar juiz' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
+
 
 // ROTAS PARA MEDIADOR
-app.get('/mediador', (req, res) => {
-  const sql = 'SELECT * FROM mediador';
-  db.query(sql, (err, result) => {
-    if (err) throw err;
+app.get('/mediador', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM mediador');
     res.send(result);
-  });
+  } catch (err) {
+    console.error('Erro ao buscar mediadores:', err);
+    res.status(500).send({ error: 'Erro ao buscar mediadores' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.get('/mediador/:id', (req, res) => {
+app.get('/mediador/:id', async (req, res) => {
   const id = req.params.id;
-  const sql = 'SELECT * FROM mediador WHERE id_mediador = ?';
-  db.query(sql, [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar mediador' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM mediador WHERE id_mediador = ?', [id]);
+
     if (result.length === 0) {
-      return res.status(404).send({ error: 'mediador não encontrado' });
+      return res.status(404).send({ error: 'Mediador não encontrado' });
     }
+    
     res.send(result[0]);
-  });
+  } catch (err) {
+    console.error('Erro ao buscar mediador:', err);
+    res.status(500).send({ error: 'Erro ao buscar mediador' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-
-app.post('/mediador', upload.single('imagem'), (req, res) => {
+app.post('/mediador', upload.single('imagem'), async (req, res) => {
   const { nome, estado, avaliacao_media } = req.body;
   const imagem = req.file ? `/uploads/mediador/${req.file.filename}` : null;
 
@@ -469,24 +529,29 @@ app.post('/mediador', upload.single('imagem'), (req, res) => {
     return res.status(400).send({ error: 'Todos os campos obrigatórios devem ser preenchidos' });
   }
 
-  const sql = 'INSERT INTO mediador (nome, estado, avaliacao_media, imagem) VALUES (?, ?, ?, ?)';
-  db.query(sql, [nome, estado, avaliacao_media, imagem], (err, result) => {
-    if (err) {
-      console.error('Erro ao inserir mediador:', err);
-      return res.status(500).send({ error: 'Erro ao inserir mediador' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const sql = 'INSERT INTO mediador (nome, estado, avaliacao_media, imagem) VALUES (?, ?, ?, ?)';
+    const [result] = await connection.query(sql, [nome, estado, avaliacao_media, imagem]);
+
     res.send({ ...result, imagem });
-  });
+  } catch (err) {
+    console.error('Erro ao inserir mediador:', err);
+    res.status(500).send({ error: 'Erro ao inserir mediador' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.put('/mediador/:id', upload.single('imagem'), (req, res) => {
+app.put('/mediador/:id', upload.single('imagem'), async (req, res) => {
   const id = req.params.id;
   const { nome, estado, avaliacao_media } = req.body;
   
-  db.query('SELECT imagem FROM mediador WHERE id_mediador = ?', [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar mediador' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT imagem FROM mediador WHERE id_mediador = ?', [id]);
 
     const antigaImagem = result[0]?.imagem;
     const novaImagem = req.file ? `/uploads/mediador/${req.file.filename}` : antigaImagem;
@@ -496,85 +561,89 @@ app.put('/mediador/:id', upload.single('imagem'), (req, res) => {
       SET nome = ?, estado = ?, avaliacao_media = ?, imagem = ?
       WHERE id_mediador = ?
     `;
+    await connection.query(sql, [nome, estado, avaliacao_media, novaImagem, id]);
 
-    db.query(
-      sql, 
-      [nome, estado, avaliacao_media, novaImagem, id],
-      (err, result) => {
-        if (err) {
-          return res.status(500).send({ error: 'Erro ao atualizar mediador' });
-        }
+    if (req.file && antigaImagem) {
+      deleteImage(antigaImagem);
+    }
 
-        if (req.file && antigaImagem) {
-          deleteImage(antigaImagem);
-        }
-
-        res.send({ message: 'Mediador atualizado com sucesso' });
-      }
-    );
-  });
+    res.send({ message: 'Mediador atualizado com sucesso' });
+  } catch (err) {
+    console.error('Erro ao atualizar mediador:', err);
+    res.status(500).send({ error: 'Erro ao atualizar mediador' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.delete('/mediador/:id', (req, res) => {
+app.delete('/mediador/:id', async (req, res) => {
   const id = req.params.id;
+  let connection;
 
-  // Primeiro, buscar a imagem do mediador
-  db.query('SELECT imagem FROM mediador WHERE id_mediador = ?', [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar mediador' });
-    }
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT imagem FROM mediador WHERE id_mediador = ?', [id]);
 
     const imagem = result[0]?.imagem;
 
     // Deletar as avaliações associadas
-    db.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id], (err, result) => {
-      if (err) {
-        return res.status(500).send({ error: 'Erro ao deletar avaliações associadas' });
-      }
+    await connection.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id]);
 
-      // Deletar o mediador
-      db.query('DELETE FROM mediador WHERE id_mediador = ?', [id], (err, result) => {
-        if (err) {
-          return res.status(500).send({ error: 'Erro ao deletar mediador' });
-        }
+    // Deletar o mediador
+    await connection.query('DELETE FROM mediador WHERE id_mediador = ?', [id]);
 
-        // Se existir uma imagem, deletá-la
-        if (imagem) {
-          deleteImage(imagem);
-        }
+    // Se existir uma imagem, deletá-la
+    if (imagem) {
+      deleteImage(imagem);
+    }
 
-        res.send({ message: 'Mediador, suas avaliações e imagem deletados com sucesso' });
-      });
-    });
-  });
+    res.send({ message: 'Mediador, suas avaliações e imagem deletados com sucesso' });
+  } catch (err) {
+    console.error('Erro ao deletar mediador:', err);
+    res.status(500).send({ error: 'Erro ao deletar mediador' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
+
 
 
 // GET all advogados
-app.get('/advocacia', (req, res) => {
-  const sql = 'SELECT * FROM advocacia';
-  db.query(sql, (err, result) => {
-    if (err) throw err;
+app.get('/advocacia', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM advocacia');
     res.send(result);
-  });
+  } catch (err) {
+    console.error('Erro ao buscar advocacia:', err);
+    res.status(500).send({ error: 'Erro ao buscar advocacia' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.get('/advocacia/:id', (req, res) => {
+app.get('/advocacia/:id', async (req, res) => {
   const id = req.params.id;
-  const sql = 'SELECT * FROM advocacia WHERE id_advocacia = ?';
-  db.query(sql, [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar advocacia' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM advocacia WHERE id_advocacia = ?', [id]);
+
     if (result.length === 0) {
-      return res.status(404).send({ error: 'advocacia não encontrado' });
+      return res.status(404).send({ error: 'Advocacia não encontrada' });
     }
+
     res.send(result[0]);
-  });
+  } catch (err) {
+    console.error('Erro ao buscar advocacia:', err);
+    res.status(500).send({ error: 'Erro ao buscar advocacia' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-// POST new advogado
-app.post('/advocacia', upload.single('imagem'), (req, res) => {
+app.post('/advocacia', upload.single('imagem'), async (req, res) => {
   const { nome, profissao, experiencia, escritorio, endereco, avaliacao_media } = req.body;
   const imagem = req.file ? `/uploads/advocacia/${req.file.filename}` : null;
 
@@ -598,15 +667,15 @@ app.post('/advocacia', upload.single('imagem'), (req, res) => {
     return res.status(400).send({ error: 'Avaliação média deve ser um número entre 0 e 10' });
   }
 
-  const sql = `
-    INSERT INTO advocacia 
-    (nome, profissao, experiencia, escritorio, endereco, imagem, avaliacao_media) 
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `;
-
-  db.query(
-    sql, 
-    [
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const sql = `
+      INSERT INTO advocacia 
+      (nome, profissao, experiencia, escritorio, endereco, imagem, avaliacao_media) 
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `;
+    const [result] = await connection.query(sql, [
       nome, 
       profissao, 
       experiencia || null, 
@@ -614,25 +683,20 @@ app.post('/advocacia', upload.single('imagem'), (req, res) => {
       endereco || null, 
       imagem,
       avaliacaoNumero
-    ], 
-    (err, result) => {
-      if (err) {
-        console.error('Erro ao inserir advogado:', err);
-        return res.status(500).send({ error: 'Erro ao inserir advogado' });
-      }
-      res.send({ ...result, imagem, avaliacao_media: avaliacaoNumero });
-    }
-  );
+    ]);
+
+    res.send({ ...result, imagem, avaliacao_media: avaliacaoNumero });
+  } catch (err) {
+    console.error('Erro ao inserir advocacia:', err);
+    res.status(500).send({ error: 'Erro ao inserir advocacia' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-// PUT update advogado
-app.put('/advocacia/:id', upload.single('imagem'), (req, res) => {
+app.put('/advocacia/:id', upload.single('imagem'), async (req, res) => {
   const id = req.params.id;
   const { nome, profissao, experiencia, escritorio, endereco, avaliacao_media } = req.body;
-  
-  // Log de todos os dados recebidos para depuração
-  console.log('Dados recebidos:', req.body);
-  console.log('Arquivo de imagem:', req.file);
 
   // Validação da avaliação média
   const avaliacaoNumero = Number(avaliacao_media);
@@ -640,10 +704,10 @@ app.put('/advocacia/:id', upload.single('imagem'), (req, res) => {
     return res.status(400).send({ error: 'Avaliação média deve ser um número entre 0 e 10' });
   }
 
-  db.query('SELECT imagem FROM advocacia WHERE id_advocacia = ?', [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar advogado' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT imagem FROM advocacia WHERE id_advocacia = ?', [id]);
 
     const antigaImagem = result[0]?.imagem;
     const novaImagem = req.file ? `/uploads/advocacia/${req.file.filename}` : antigaImagem;
@@ -660,115 +724,114 @@ app.put('/advocacia/:id', upload.single('imagem'), (req, res) => {
       WHERE id_advocacia = ?
     `;
 
-    db.query(
-      sql, 
-      [
-        nome, 
-        profissao, 
-        experiencia || null, 
-        escritorio || null, 
-        endereco || null, 
-        novaImagem,
-        avaliacaoNumero,
-        id
-      ],
-      (err, result) => {
-        if (err) {
-          console.error('Erro ao atualizar advogado:', err);
-          return res.status(500).send({ error: 'Erro ao atualizar advogado' });
-        }
+    await connection.query(sql, [
+      nome, 
+      profissao, 
+      experiencia || null, 
+      escritorio || null, 
+      endereco || null, 
+      novaImagem,
+      avaliacaoNumero,
+      id
+    ]);
 
-        if (req.file && antigaImagem) {
-          deleteImage(antigaImagem);
-        }
+    if (req.file && antigaImagem) {
+      deleteImage(antigaImagem);
+    }
 
-        res.send({ 
-          message: 'Advogado atualizado com sucesso',
-          avaliacao_media: avaliacaoNumero
-        });
-      }
-    );
-  });
+    res.send({ 
+      message: 'Advocacia atualizada com sucesso',
+      avaliacao_media: avaliacaoNumero
+    });
+  } catch (err) {
+    console.error('Erro ao atualizar advocacia:', err);
+    res.status(500).send({ error: 'Erro ao atualizar advocacia' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-// Rota para buscar por profissão específica
-app.get('/advocacia/profissao/:profissao', (req, res) => {
+app.get('/advocacia/profissao/:profissao', async (req, res) => {
   const profissao = req.params.profissao;
-  const sql = 'SELECT * FROM advocacia WHERE profissao = ?';
-  
-  db.query(sql, [profissao], (err, result) => {
-    if (err) {
-      console.error('Erro ao buscar por profissão:', err);
-      return res.status(500).send({ error: 'Erro ao buscar por profissão' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM advocacia WHERE profissao = ?', [profissao]);
     res.send(result);
-  });
+  } catch (err) {
+    console.error('Erro ao buscar por profissão:', err);
+    res.status(500).send({ error: 'Erro ao buscar por profissão' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.delete('/advocacia/:id', (req, res) => {
+app.delete('/advocacia/:id', async (req, res) => {
   const id = req.params.id;
+  let connection;
 
-  // Primeiro, buscar a imagem do advocacia
-  db.query('SELECT imagem FROM advocacia WHERE id_advocacia = ?', [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar advocacia' });
-    }
-
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT imagem FROM advocacia WHERE id_advocacia = ?', [id]);
     const imagem = result[0]?.imagem;
 
     // Deletar as avaliações associadas
-    db.query('DELETE FROM av_advocacia WHERE id_advocacia = ?', [id], (err, result) => {
-      if (err) {
-        return res.status(500).send({ error: 'Erro ao deletar avaliações associadas' });
-      }
+    await connection.query('DELETE FROM av_advocacia WHERE id_advocacia = ?', [id]);
 
-      // Deletar o advocacia
-      db.query('DELETE FROM advocacia WHERE id_advocacia = ?', [id], (err, result) => {
-        if (err) {
-          return res.status(500).send({ error: 'Erro ao deletar advocacia' });
-        }
+    // Deletar a advocacia
+    await connection.query('DELETE FROM advocacia WHERE id_advocacia = ?', [id]);
 
-        // Se existir uma imagem, deletá-la
-        if (imagem) {
-          deleteImage(imagem);
-        }
+    // Se existir uma imagem, deletá-la
+    if (imagem) {
+      deleteImage(imagem);
+    }
 
-        res.send({ message: 'Advocacia, suas avaliações e imagem deletados com sucesso' });
-      });
-    });
-  });
+    res.send({ message: 'Advocacia, suas avaliações e imagem deletados com sucesso' });
+  } catch (err) {
+    console.error('Erro ao deletar advocacia:', err);
+    res.status(500).send({ error: 'Erro ao deletar advocacia' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
 
-app.get('/portais', (req, res) => {
-  const sql = 'SELECT id_portal, nome, url, imagem, avaliacao_media FROM portal';
-  db.query(sql, (err, result) => {
-    if (err) {
-      console.error('Erro ao buscar portais:', err);
-      return res.status(500).send({ error: 'Erro ao buscar portais', details: err.message });
-    }
-    // Log para debug
-    console.log('Portais encontrados:', result);
+// Rota GET - Buscar todos os portais
+app.get('/portais', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT id_portal, nome, url, imagem, avaliacao_media FROM portal');
     res.send(result);
-  });
+  } catch (err) {
+    console.error('Erro ao buscar portais:', err);
+    res.status(500).send({ error: 'Erro ao buscar portais', details: err.message });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.get('/portais/:id', (req, res) => {
+// Rota GET - Buscar portal por ID
+app.get('/portais/:id', async (req, res) => {
   const id = req.params.id;
-  const sql = 'SELECT * FROM portal WHERE id_portal = ?';
-  db.query(sql, [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar portal' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM portal WHERE id_portal = ?', [id]);
     if (result.length === 0) {
-      return res.status(404).send({ error: 'portal não encontrado' });
+      return res.status(404).send({ error: 'Portal não encontrado' });
     }
     res.send(result[0]);
-  });
+  } catch (err) {
+    console.error('Erro ao buscar portal:', err);
+    res.status(500).send({ error: 'Erro ao buscar portal' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
 // Rota POST - Criar portal com validação de URL
-app.post('/portais', upload.single('imagem'), (req, res) => {
+app.post('/portais', upload.single('imagem'), async (req, res) => {
   console.log('Dados recebidos:', req.body); // Log para debug
 
   const { nome, url, avaliacao_media } = req.body;
@@ -807,37 +870,31 @@ app.post('/portais', upload.single('imagem'), (req, res) => {
   console.log('SQL:', sql);
   console.log('Valores:', values);
 
-  db.query(sql, values, (err, result) => {
-    if (err) {
-      console.error('Erro ao inserir portal:', err);
-      if (req.file) {
-        deleteImage(`/uploads/portais/${req.file.filename}`);
-      }
-      return res.status(500).send({ 
-        error: 'Erro ao inserir portal', 
-        details: err.message,
-        sql: sql,
-        values: values
-      });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query(sql, values);
 
     // Buscar o registro recém-inserido para confirmar
-    db.query('SELECT * FROM portal WHERE id_portal = ?', [result.insertId], (err, selectResult) => {
-      if (err) {
-        console.error('Erro ao buscar portal inserido:', err);
-        return res.status(500).send({ 
-          error: 'Portal inserido mas erro ao recuperar dados', 
-          id: result.insertId 
-        });
-      }
-      console.log('Portal inserido:', selectResult[0]); // Log para debug
-      res.status(201).send(selectResult[0]);
+    const [selectResult] = await connection.query('SELECT * FROM portal WHERE id_portal = ?', [result.insertId]);
+    console.log('Portal inserido:', selectResult[0]); // Log para debug
+    res.status(201).send(selectResult[0]);
+  } catch (err) {
+    console.error('Erro ao inserir portal:', err);
+    if (req.file) {
+      deleteImage(`/uploads/portais/${req.file.filename}`);
+    }
+    res.status(500).send({ 
+      error: 'Erro ao inserir portal', 
+      details: err.message
     });
-  });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
 // Rota PUT - Atualizar portal com validação de URL
-app.put('/portais/:id', upload.single('imagem'), (req, res) => {
+app.put('/portais/:id', upload.single('imagem'), async (req, res) => {
   console.log('Dados de atualização recebidos:', req.body); // Log para debug
   
   const id = req.params.id;
@@ -855,16 +912,12 @@ app.put('/portais/:id', upload.single('imagem'), (req, res) => {
     }
   }
   
-  // Primeiro, verificar se o portal existe
-  db.query('SELECT * FROM portal WHERE id_portal = ?', [id], (err, result) => {
-    if (err) {
-      console.error('Erro ao buscar portal:', err);
-      return res.status(500).send({ 
-        error: 'Erro ao buscar portal', 
-        details: err.message 
-      });
-    }
-
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    
+    // Primeiro, verificar se o portal existe
+    const [result] = await connection.query('SELECT * FROM portal WHERE id_portal = ?', [id]);
     if (result.length === 0) {
       if (req.file) {
         deleteImage(`/uploads/portais/${req.file.filename}`);
@@ -904,47 +957,41 @@ app.put('/portais/:id', upload.single('imagem'), (req, res) => {
     console.log('SQL de atualização:', sql);
     console.log('Valores de atualização:', updateValues);
 
-    db.query(sql, updateValues, (updateErr, updateResult) => {
-      if (updateErr) {
-        console.error('Erro ao atualizar portal:', updateErr);
-        if (req.file) {
-          deleteImage(`/uploads/portais/${req.file.filename}`);
-        }
-        return res.status(500).send({ 
-          error: 'Erro ao atualizar portal', 
-          details: updateErr.message 
-        });
-      }
+    const [updateResult] = await connection.query(sql, updateValues);
 
-      if (updateResult.affectedRows === 0) {
-        if (req.file) {
-          deleteImage(`/uploads/portais/${req.file.filename}`);
-        }
-        return res.status(404).send({ error: 'Nenhum registro foi atualizado' });
+    if (updateResult.affectedRows === 0) {
+      if (req.file) {
+        deleteImage(`/uploads/portais/${req.file.filename}`);
       }
+      return res.status(404).send({ error: 'Nenhum registro foi atualizado' });
+    }
 
-      // Se há uma nova imagem e existia uma antiga, deletar a antiga
-      if (req.file && antigaImagem) {
-        deleteImage(antigaImagem);
-      }
+    // Se há uma nova imagem e existia uma antiga, deletar a antiga
+    if (req.file && antigaImagem) {
+      deleteImage(antigaImagem);
+    }
 
-      // Buscar o registro atualizado para confirmar
-      db.query('SELECT * FROM portal WHERE id_portal = ?', [id], (err, finalResult) => {
-        if (err) {
-          console.error('Erro ao buscar portal atualizado:', err);
-          return res.status(500).send({ 
-            error: 'Portal atualizado mas erro ao recuperar dados', 
-            id: id 
-          });
-        }
-        console.log('Portal atualizado:', finalResult[0]); // Log para debug
-        res.send(finalResult[0]);
-      });
+    // Buscar o registro atualizado para confirmar
+    const [finalResult] = await connection.query('SELECT * FROM portal WHERE id_portal = ?', [id]);
+    console.log('Portal atualizado:', finalResult[0]); // Log para debug
+    res.send(finalResult[0]);
+
+  } catch (err) {
+    console.error('Erro ao atualizar portal:', err);
+    if (req.file) {
+      deleteImage(`/uploads/portais/${req.file.filename}`);
+    }
+    res.status(500).send({ 
+      error: 'Erro ao atualizar portal', 
+      details: err.message 
     });
-  });
+  } finally {
+    if (connection) connection.release();
+  }
 });
+
 // Rota GET - Buscar portais com base em um termo de pesquisa
-app.get('/portais/search', (req, res) => {
+app.get('/portais/search', async (req, res) => {
   const searchTerm = req.query.term;
 
   // Consulta SQL para filtrar os registros que contenham o termo
@@ -956,48 +1003,51 @@ app.get('/portais/search', (req, res) => {
 
   const values = [`%${searchTerm}%`, `%${searchTerm}%`];
 
-  db.query(sql, values, (err, result) => {
-    if (err) {
-      console.error('Erro ao buscar portais:', err);
-      return res.status(500).send({ error: 'Erro ao buscar portais' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query(sql, values);
     res.send(result);
-  });
+  } catch (err) {
+    console.error('Erro ao buscar portais:', err);
+    res.status(500).send({ error: 'Erro ao buscar portais' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-app.delete('/portais/:id', (req, res) => {
+// Rota DELETE - Deletar portal
+app.delete('/portais/:id', async (req, res) => {
   const id = req.params.id;
 
-  // Primeiro, buscar a imagem do portal
-  db.query('SELECT imagem FROM portal WHERE id_portal = ?', [id], (err, result) => {
-    if (err) {
-      return res.status(500).send({ error: 'Erro ao buscar portal' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
 
+    // Primeiro, buscar a imagem do portal
+    const [result] = await connection.query('SELECT imagem FROM portal WHERE id_portal = ?', [id]);
     const imagem = result[0]?.imagem;
 
     // Deletar as avaliações associadas
-    db.query('DELETE FROM av_portal WHERE id_portal = ?', [id], (err, result) => {
-      if (err) {
-        return res.status(500).send({ error: 'Erro ao deletar avaliações associadas' });
-      }
+    await connection.query('DELETE FROM av_portal WHERE id_portal = ?', [id]);
 
-      // Deletar o portal
-      db.query('DELETE FROM portal WHERE id_portal = ?', [id], (err, result) => {
-        if (err) {
-          return res.status(500).send({ error: 'Erro ao deletar portal' });
-        }
+    // Deletar o portal
+    await connection.query('DELETE FROM portal WHERE id_portal = ?', [id]);
 
-        // Se existir uma imagem, deletá-la
-        if (imagem) {
-          deleteImage(imagem);
-        }
+    // Se existir uma imagem, deletá-la
+    if (imagem) {
+      deleteImage(imagem);
+    }
 
-        res.send({ message: 'Portal, suas avaliações e imagem deletados com sucesso' });
-      });
-    });
-  });
+    res.send({ message: 'Portal, suas avaliações e imagem deletados com sucesso' });
+  } catch (err) {
+    console.error('Erro ao deletar portal:', err);
+    res.status(500).send({ error: 'Erro ao deletar portal' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
+
 
 
 
@@ -1005,14 +1055,22 @@ app.delete('/portais/:id', (req, res) => {
 //usuarios
 
 
-app.get('/usuarios', (req, res) => {
-  const sql = 'SELECT * FROM usuarios';
-  db.query(sql, (err, result) => {
-    if (err) throw err;
+// Rota GET - Buscar todos os usuários
+app.get('/usuarios', async (req, res) => {
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT * FROM usuarios');
     res.send(result);
-  });
+  } catch (err) {
+    console.error('Erro ao buscar usuários:', err);
+    res.status(500).send({ error: 'Erro ao buscar usuários' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
+// Rota POST - Cadastro de usuário
 app.post('/usuarios', async (req, res) => {
   console.log('Recebendo requisição de cadastro:', req.body); // Log dos dados recebidos
 
@@ -1023,122 +1081,120 @@ app.post('/usuarios', async (req, res) => {
     return res.status(400).send({ error: 'Todos os campos obrigatórios devem ser preenchidos' });
   }
 
-  // Verificar se o usuário já existe
-  const sqlCheck = 'SELECT * FROM usuarios WHERE cpf = ? OR email = ?';
-  db.query(sqlCheck, [cpf, email], async (err, result) => {
-    if (err) {
-      console.error('Erro na verificação de usuário existente:', err); // Log de erro
-      return res.status(500).send({ error: 'Erro no servidor' });
-    }
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+
+    // Verificar se o usuário já existe
+    const [result] = await connection.query('SELECT * FROM usuarios WHERE cpf = ? OR email = ?', [cpf, email]);
     if (result.length > 0) {
       console.log('Usuário já existe'); // Log de usuário duplicado
       return res.status(400).send({ error: 'Usuário já cadastrado com esse CPF ou email' });
     }
 
-    try {
-      // Criptografar a senha
-      const hashedSenha = await bcrypt.hash(senha, 10);
+    // Criptografar a senha
+    const hashedSenha = await bcrypt.hash(senha, 10);
 
-      // Inserir usuário
-      const sql = 'INSERT INTO usuarios (cpf, nome, email, senha, telefone) VALUES (?, ?, ?, ?, ?)';
-      db.query(sql, [cpf, nome, email, hashedSenha, telefone], (err, result) => {
-        if (err) {
-          console.error('Erro ao inserir usuário:', err); // Log de erro na inserção
-          return res.status(500).send({ error: 'Erro ao cadastrar usuário' });
-        }
-        console.log('Usuário cadastrado com sucesso'); // Log de sucesso
-        res.status(201).send({ message: 'Usuário cadastrado com sucesso' });
-      });
-    } catch (error) {
-      console.error('Erro ao criptografar senha:', error); // Log de erro na criptografia
-      return res.status(500).send({ error: 'Erro ao processar cadastro' });
-    }
-  });
+    // Inserir usuário
+    const [insertResult] = await connection.query('INSERT INTO usuarios (cpf, nome, email, senha, telefone) VALUES (?, ?, ?, ?, ?)', [cpf, nome, email, hashedSenha, telefone]);
+    console.log('Usuário cadastrado com sucesso'); // Log de sucesso
+    res.status(201).send({ message: 'Usuário cadastrado com sucesso' });
+  } catch (error) {
+    console.error('Erro ao processar cadastro:', error); // Log de erro no cadastro
+    res.status(500).send({ error: 'Erro ao cadastrar usuário' });
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
-// Adicione esta rota no seu server.js
-app.get('/api/usuario/:id', (req, res) => {
+// Rota GET - Buscar dados do usuário por ID
+app.get('/api/usuario/:id', async (req, res) => {
   const userId = req.params.id;
 
-  const sql = 'SELECT id_usuario, nome, email, role FROM usuarios WHERE id_usuario = ?';
-  db.query(sql, [userId], (err, result) => {
-    if (err) {
-      console.error('Erro ao buscar dados do usuário:', err);
-      return res.status(500).send({ error: 'Erro interno do servidor' });
-    }
-    
+  let connection;
+  try {
+    connection = await db.promise().getConnection();
+    const [result] = await connection.query('SELECT id_usuario, nome, email, role FROM usuarios WHERE id_usuario = ?', [userId]);
+
     if (result.length === 0) {
       return res.status(404).send({ error: 'Usuário não encontrado' });
     }
 
     res.json(result[0]);
-  });
-});
-
-// Login de usuário
-// server.js - Rota de login modificada
-app.post('/login', async (req, res) => {
-  try {
-      const { email, senha } = req.body;
-
-      // Validação básica
-      if (!email || !senha) {
-          return res.status(400).json({ error: 'Email e senha são obrigatórios' });
-      }
-
-      const sql = 'SELECT * FROM usuarios WHERE email = ?';
-      
-      db.query(sql, [email], async (err, result) => {
-          if (err) {
-              console.error('Erro na consulta:', err);
-              return res.status(500).json({ error: 'Erro no servidor' });
-          }
-          
-          if (result.length === 0) {
-              return res.status(400).json({ error: 'Usuário não encontrado' });
-          }
-
-          const usuario = result[0];
-          
-          try {
-              const isMatch = await bcrypt.compare(senha, usuario.senha);
-              
-              if (!isMatch) {
-                  return res.status(400).json({ error: 'Senha incorreta' });
-              }
-
-              const token = jwt.sign(
-                  {
-                      id: usuario.id_usuario,
-                      role: usuario.role,
-                      nome: usuario.nome
-                  },
-                  process.env.JWT_SECRET,
-                  { expiresIn: '1h' }
-              );
-
-              res.json({
-                  message: 'Login realizado com sucesso',
-                  token,
-                  user: {
-                      id: usuario.id_usuario,
-                      nome: usuario.nome,
-                      role: usuario.role,
-                      cpf: usuario.cpf,         // Adicionado
-                      email: usuario.email,      // Adicionado
-                      telefone: usuario.telefone // Adicionado
-                  }
-              });
-          } catch (bcryptError) {
-              console.error('Erro ao comparar senhas:', bcryptError);
-              return res.status(500).json({ error: 'Erro ao verificar senha' });
-          }
-      });
-  } catch (error) {
-      console.error('Erro no login:', error);
-      res.status(500).json({ error: 'Erro interno do servidor' });
+  } catch (err) {
+    console.error('Erro ao buscar dados do usuário:', err);
+    res.status(500).send({ error: 'Erro interno do servidor' });
+  } finally {
+    if (connection) connection.release();
   }
 });
+
+// Rota POST - Login de usuário
+app.post('/login', async (req, res) => {
+  try {
+    const { email, senha } = req.body;
+
+    // Validação básica
+    if (!email || !senha) {
+      return res.status(400).json({ error: 'Email e senha são obrigatórios' });
+    }
+
+    let connection;
+    try {
+      connection = await db.promise().getConnection();
+      const [result] = await connection.query('SELECT * FROM usuarios WHERE email = ?', [email]);
+
+      if (result.length === 0) {
+        return res.status(400).json({ error: 'Usuário não encontrado' });
+      }
+
+      const usuario = result[0];
+
+      try {
+        const isMatch = await bcrypt.compare(senha, usuario.senha);
+
+        if (!isMatch) {
+          return res.status(400).json({ error: 'Senha incorreta' });
+        }
+
+        const token = jwt.sign(
+          {
+            id: usuario.id_usuario,
+            role: usuario.role,
+            nome: usuario.nome
+          },
+          process.env.JWT_SECRET,
+          { expiresIn: '1h' }
+        );
+
+        res.json({
+          message: 'Login realizado com sucesso',
+          token,
+          user: {
+            id: usuario.id_usuario,
+            nome: usuario.nome,
+            role: usuario.role,
+            cpf: usuario.cpf,         // Adicionado
+            email: usuario.email,      // Adicionado
+            telefone: usuario.telefone // Adicionado
+          }
+        });
+      } catch (bcryptError) {
+        console.error('Erro ao comparar senhas:', bcryptError);
+        return res.status(500).json({ error: 'Erro ao verificar senha' });
+      }
+    } catch (err) {
+      console.error('Erro ao consultar o banco de dados para login:', err);
+      return res.status(500).json({ error: 'Erro no servidor' });
+    } finally {
+      if (connection) connection.release();
+    }
+  } catch (error) {
+    console.error('Erro no login:', error);
+    res.status(500).json({ error: 'Erro interno do servidor' });
+  }
+});
+
 
 const authenticateToken = (req, res, next) => {
   try {
