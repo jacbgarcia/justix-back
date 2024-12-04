@@ -1,4 +1,4 @@
-// authService.js
+
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 
@@ -7,7 +7,6 @@ class AuthService {
         this.db = db;
     }
 
-    // Gerar tokens (access e refresh)
     generateTokens(user) {
         const accessToken = jwt.sign(
             { 
@@ -28,11 +27,11 @@ class AuthService {
         return { accessToken, refreshToken };
     }
 
-    // Salvar token no banco
+
     async saveToken(userId, token, tipo, userAgent) {
         const expiracao = tipo === 'access' ? 
-            new Date(Date.now() + 60 * 60 * 1000) : // 1 hora
-            new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 dias
+            new Date(Date.now() + 60 * 60 * 1000) : 
+            new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); 
 
         const query = `
             INSERT INTO user_tokens 
@@ -50,7 +49,7 @@ class AuthService {
         });
     }
 
-    // Verificar se token está válido no banco
+   
     async verifyTokenValidity(token) {
         const query = `
             SELECT * FROM user_tokens 
@@ -67,7 +66,7 @@ class AuthService {
         });
     }
 
-    // Revogar token específico
+    
     async revokeToken(token) {
         const query = `
             UPDATE user_tokens 
@@ -83,7 +82,7 @@ class AuthService {
         });
     }
 
-    // Revogar todos os tokens de um usuário
+   
     async revokeAllUserTokens(userId) {
         const query = `
             UPDATE user_tokens 

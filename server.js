@@ -22,8 +22,6 @@ const JWT_SECRET = 'root';
 
 
 
-
-// Configuração do pool de conexões
 const db = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -31,15 +29,15 @@ const db = mysql.createPool({
   password: process.env.DB_PASS,
   database: process.env.DB_NAME,
   waitForConnections: true,
-  connectionLimit: 10, // Limite máximo de conexões no pool
-  queueLimit: 0 // Sem limite na fila de espera
+  connectionLimit: 10, 
+  queueLimit: 0 
 });
 
 
-// Configuração do Multer para upload de imagens
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const type = req.originalUrl.split('/')[1]; // Pega 'foruns', 'tribunais', etc.
+    const type = req.originalUrl.split('/')[1];
     const uploadPath = path.join(__dirname, 'uploads', type);
 
     if (!fs.existsSync(uploadPath)) {
@@ -70,7 +68,7 @@ const upload = multer({
   }
 });
 
-// Função auxiliar para deletar arquivo de imagem
+
 const deleteImage = (imagePath) => {
   if (!imagePath) return;
 
@@ -80,7 +78,7 @@ const deleteImage = (imagePath) => {
   }
 };
 
-// Rota para upload de imagens genéricas
+
 app.post('/upload/:type', upload.single('image'), (req, res) => {
   if (req.file) {
     res.send({ message: 'Arquivo enviado com sucesso!', file: req.file });
@@ -89,10 +87,10 @@ app.post('/upload/:type', upload.single('image'), (req, res) => {
   }
 });
 
-// Servir arquivos estáticos
+
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// ROTAS PARA FÓRUNS
+
 app.get('/foruns', async (req, res) => {
   let connection;
   try {
@@ -178,13 +176,13 @@ app.delete('/foruns/:id', async (req, res) => {
 
     const imagem = result[0]?.imagem;
 
-    // Deletar as avaliações associadas
+ 
     await connection.query('DELETE FROM av_foruns WHERE id_forum = ?', [id]);
 
-    // Deletar o fórum
+
     await connection.query('DELETE FROM foruns WHERE id_forum = ?', [id]);
 
-    // Se existir uma imagem, deletá-la
+
     if (imagem) {
       deleteImage(imagem);
     }
@@ -219,7 +217,7 @@ app.get('/foruns/:id', async (req, res) => {
   }
 });
 
-// ROTAS PARA TRIBUNAIS
+
 app.get('/tribunais', async (req, res) => {
   let connection;
   try {
@@ -341,13 +339,13 @@ app.delete('/tribunais/:id', async (req, res) => {
 
     const imagem = result[0]?.imagem;
 
-    // Deletar as avaliações associadas
+
     await connection.query('DELETE FROM av_tribunais WHERE id_tribunal = ?', [id]);
 
-    // Deletar o tribunal
+  
     await connection.query('DELETE FROM tribunais WHERE id_tribunal = ?', [id]);
 
-    // Se existir uma imagem, deletá-la
+    
     if (imagem) {
       deleteImage(imagem);
     }
@@ -362,7 +360,7 @@ app.delete('/tribunais/:id', async (req, res) => {
 });
 
 
-// ROTAS PARA JUIZ
+
 app.get('/juiz', async (req, res) => {
   let connection;
   try {
@@ -466,13 +464,13 @@ app.delete('/juiz/:id', async (req, res) => {
 
     const imagem = result[0]?.imagem;
 
-    // Deletar as avaliações associadas
+   
     await connection.query('DELETE FROM av_juiz WHERE id_juiz = ?', [id]);
 
-    // Deletar o juiz
+   
     await connection.query('DELETE FROM juiz WHERE id_juiz = ?', [id]);
 
-    // Se existir uma imagem, deletá-la
+
     if (imagem) {
       deleteImage(imagem);
     }
@@ -487,7 +485,7 @@ app.delete('/juiz/:id', async (req, res) => {
 });
 
 
-// ROTAS PARA MEDIADOR
+
 app.get('/mediador', async (req, res) => {
   let connection;
   try {
@@ -587,13 +585,13 @@ app.delete('/mediador/:id', async (req, res) => {
 
     const imagem = result[0]?.imagem;
 
-    // Deletar as avaliações associadas
+
     await connection.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id]);
 
-    // Deletar o mediador
+
     await connection.query('DELETE FROM mediador WHERE id_mediador = ?', [id]);
 
-    // Se existir uma imagem, deletá-la
+    
     if (imagem) {
       deleteImage(imagem);
     }
@@ -609,7 +607,7 @@ app.delete('/mediador/:id', async (req, res) => {
 
 
 
-// GET all advogados
+
 app.get('/advocacia', async (req, res) => {
   let connection;
   try {
@@ -648,12 +646,12 @@ app.post('/advocacia', upload.single('imagem'), async (req, res) => {
   const { nome, profissao, experiencia, escritorio, endereco, avaliacao_media } = req.body;
   const imagem = req.file ? `/uploads/advocacia/${req.file.filename}` : null;
 
-  // Validação condicional com base na profissão
+  
   if (!nome || !profissao) {
     return res.status(400).send({ error: 'Nome e profissão são obrigatórios' });
   }
 
-  // Validação condicional de acordo com a profissão
+
   if (profissao === 'Advogado' && (!experiencia || !escritorio)) {
     return res.status(400).send({ error: 'Experiência e escritório são obrigatórios para Advogados' });
   }
@@ -662,7 +660,7 @@ app.post('/advocacia', upload.single('imagem'), async (req, res) => {
     return res.status(400).send({ error: 'Endereço é obrigatório para Escritórios' });
   }
 
-  // Validação da avaliação média
+  
   const avaliacaoNumero = Number(avaliacao_media);
   if (isNaN(avaliacaoNumero) || avaliacaoNumero < 0 || avaliacaoNumero > 10) {
     return res.status(400).send({ error: 'Avaliação média deve ser um número entre 0 e 10' });
@@ -699,7 +697,7 @@ app.put('/advocacia/:id', upload.single('imagem'), async (req, res) => {
   const id = req.params.id;
   const { nome, profissao, experiencia, escritorio, endereco, avaliacao_media } = req.body;
 
-  // Validação da avaliação média
+ 
   const avaliacaoNumero = Number(avaliacao_media);
   if (isNaN(avaliacaoNumero) || avaliacaoNumero < 0 || avaliacaoNumero > 10) {
     return res.status(400).send({ error: 'Avaliação média deve ser um número entre 0 e 10' });
@@ -776,13 +774,13 @@ app.delete('/advocacia/:id', async (req, res) => {
     const [result] = await connection.query('SELECT imagem FROM advocacia WHERE id_advocacia = ?', [id]);
     const imagem = result[0]?.imagem;
 
-    // Deletar as avaliações associadas
+ 
     await connection.query('DELETE FROM av_advocacia WHERE id_advocacia = ?', [id]);
 
-    // Deletar a advocacia
+   
     await connection.query('DELETE FROM advocacia WHERE id_advocacia = ?', [id]);
 
-    // Se existir uma imagem, deletá-la
+ 
     if (imagem) {
       deleteImage(imagem);
     }
@@ -797,7 +795,7 @@ app.delete('/advocacia/:id', async (req, res) => {
 });
 
 
-// Rota GET - Buscar todos os portais
+
 app.get('/portais', async (req, res) => {
   let connection;
   try {
@@ -812,7 +810,7 @@ app.get('/portais', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar portal por ID
+
 app.get('/portais/:id', async (req, res) => {
   const id = req.params.id;
   let connection;
@@ -831,25 +829,25 @@ app.get('/portais/:id', async (req, res) => {
   }
 });
 
-// Rota POST - Criar portal com validação de URL
+
 app.post('/portais', upload.single('imagem'), async (req, res) => {
-  console.log('Dados recebidos:', req.body); // Log para debug
+  console.log('Dados recebidos:', req.body); 
 
   const { nome, url, avaliacao_media } = req.body;
   const imagem = req.file ? `/uploads/portais/${req.file.filename}` : null;
 
-  // Validação mais rigorosa dos campos
+ 
   if (!nome || !url) {
     if (req.file) {
       deleteImage(`/uploads/portais/${req.file.filename}`);
     }
     return res.status(400).send({ 
       error: 'Nome e URL são obrigatórios',
-      receivedData: { nome, url } // Mostra os dados recebidos para debug
+      receivedData: { nome, url } 
     });
   }
 
-  // Validação básica de URL
+
   try {
     new URL(url);
   } catch (e) {
@@ -867,7 +865,7 @@ app.post('/portais', upload.single('imagem'), async (req, res) => {
     avaliacao_media || '2.00'
   ];
 
-  // Log para debug
+  
   console.log('SQL:', sql);
   console.log('Valores:', values);
 
@@ -876,9 +874,9 @@ app.post('/portais', upload.single('imagem'), async (req, res) => {
     connection = await db.promise().getConnection();
     const [result] = await connection.query(sql, values);
 
-    // Buscar o registro recém-inserido para confirmar
+    
     const [selectResult] = await connection.query('SELECT * FROM portal WHERE id_portal = ?', [result.insertId]);
-    console.log('Portal inserido:', selectResult[0]); // Log para debug
+    console.log('Portal inserido:', selectResult[0]); 
     res.status(201).send(selectResult[0]);
   } catch (err) {
     console.error('Erro ao inserir portal:', err);
@@ -894,14 +892,14 @@ app.post('/portais', upload.single('imagem'), async (req, res) => {
   }
 });
 
-// Rota PUT - Atualizar portal com validação de URL
+
 app.put('/portais/:id', upload.single('imagem'), async (req, res) => {
-  console.log('Dados de atualização recebidos:', req.body); // Log para debug
+  console.log('Dados de atualização recebidos:', req.body); 
   
   const id = req.params.id;
   const { nome, url, avaliacao_media } = req.body;
 
-  // Se uma URL foi fornecida, validá-la
+  
   if (url) {
     try {
       new URL(url);
@@ -917,7 +915,7 @@ app.put('/portais/:id', upload.single('imagem'), async (req, res) => {
   try {
     connection = await db.promise().getConnection();
     
-    // Primeiro, verificar se o portal existe
+    
     const [result] = await connection.query('SELECT * FROM portal WHERE id_portal = ?', [id]);
     if (result.length === 0) {
       if (req.file) {
@@ -929,7 +927,7 @@ app.put('/portais/:id', upload.single('imagem'), async (req, res) => {
     const antigaImagem = result[0].imagem;
     const novaImagem = req.file ? `/uploads/portais/${req.file.filename}` : antigaImagem;
 
-    // Preparar dados para atualização
+    
     const updateData = {
       nome: nome || result[0].nome,
       url: url || result[0].url,
@@ -954,7 +952,7 @@ app.put('/portais/:id', upload.single('imagem'), async (req, res) => {
       id
     ];
 
-    // Log para debug
+    
     console.log('SQL de atualização:', sql);
     console.log('Valores de atualização:', updateValues);
 
@@ -967,14 +965,14 @@ app.put('/portais/:id', upload.single('imagem'), async (req, res) => {
       return res.status(404).send({ error: 'Nenhum registro foi atualizado' });
     }
 
-    // Se há uma nova imagem e existia uma antiga, deletar a antiga
+    
     if (req.file && antigaImagem) {
       deleteImage(antigaImagem);
     }
 
-    // Buscar o registro atualizado para confirmar
+    
     const [finalResult] = await connection.query('SELECT * FROM portal WHERE id_portal = ?', [id]);
-    console.log('Portal atualizado:', finalResult[0]); // Log para debug
+    console.log('Portal atualizado:', finalResult[0]); 
     res.send(finalResult[0]);
 
   } catch (err) {
@@ -991,11 +989,11 @@ app.put('/portais/:id', upload.single('imagem'), async (req, res) => {
   }
 });
 
-// Rota GET - Buscar portais com base em um termo de pesquisa
+
 app.get('/portais/search', async (req, res) => {
   const searchTerm = req.query.term;
 
-  // Consulta SQL para filtrar os registros que contenham o termo
+  
   const sql = `
     SELECT id_portal, nome, url, imagem, avaliacao_media
     FROM portal
@@ -1017,7 +1015,7 @@ app.get('/portais/search', async (req, res) => {
   }
 });
 
-// Rota DELETE - Deletar portal
+
 app.delete('/portais/:id', async (req, res) => {
   const id = req.params.id;
 
@@ -1025,17 +1023,17 @@ app.delete('/portais/:id', async (req, res) => {
   try {
     connection = await db.promise().getConnection();
 
-    // Primeiro, buscar a imagem do portal
+    
     const [result] = await connection.query('SELECT imagem FROM portal WHERE id_portal = ?', [id]);
     const imagem = result[0]?.imagem;
 
-    // Deletar as avaliações associadas
+    
     await connection.query('DELETE FROM av_portal WHERE id_portal = ?', [id]);
 
-    // Deletar o portal
+    
     await connection.query('DELETE FROM portal WHERE id_portal = ?', [id]);
 
-    // Se existir uma imagem, deletá-la
+    
     if (imagem) {
       deleteImage(imagem);
     }
@@ -1053,10 +1051,10 @@ app.delete('/portais/:id', async (req, res) => {
 
 
 
-//usuarios
 
 
-// Rota GET - Buscar todos os usuários
+
+
 app.get('/usuarios', async (req, res) => {
   let connection;
   try {
@@ -1071,14 +1069,14 @@ app.get('/usuarios', async (req, res) => {
   }
 });
 
-// Rota POST - Cadastro de usuário
+
 app.post('/usuarios', async (req, res) => {
-  console.log('Recebendo requisição de cadastro:', req.body); // Log dos dados recebidos
+  console.log('Recebendo requisição de cadastro:', req.body); 
 
   const { cpf, nome, email, senha, telefone } = req.body;
 
   if (!cpf || !nome || !email || !senha) {
-    console.log('Campos obrigatórios faltando'); // Log de validação
+    console.log('Campos obrigatórios faltando'); 
     return res.status(400).send({ error: 'Todos os campos obrigatórios devem ser preenchidos' });
   }
 
@@ -1086,29 +1084,29 @@ app.post('/usuarios', async (req, res) => {
   try {
     connection = await db.promise().getConnection();
 
-    // Verificar se o usuário já existe
+    
     const [result] = await connection.query('SELECT * FROM usuarios WHERE cpf = ? OR email = ?', [cpf, email]);
     if (result.length > 0) {
-      console.log('Usuário já existe'); // Log de usuário duplicado
+      console.log('Usuário já existe'); 
       return res.status(400).send({ error: 'Usuário já cadastrado com esse CPF ou email' });
     }
 
-    // Criptografar a senha
+    
     const hashedSenha = await bcrypt.hash(senha, 10);
 
-    // Inserir usuário
+    
     const [insertResult] = await connection.query('INSERT INTO usuarios (cpf, nome, email, senha, telefone) VALUES (?, ?, ?, ?, ?)', [cpf, nome, email, hashedSenha, telefone]);
-    console.log('Usuário cadastrado com sucesso'); // Log de sucesso
+    console.log('Usuário cadastrado com sucesso'); 
     res.status(201).send({ message: 'Usuário cadastrado com sucesso' });
   } catch (error) {
-    console.error('Erro ao processar cadastro:', error); // Log de erro no cadastro
+    console.error('Erro ao processar cadastro:', error); 
     res.status(500).send({ error: 'Erro ao cadastrar usuário' });
   } finally {
     if (connection) connection.release();
   }
 });
 
-// Rota GET - Buscar dados do usuário por ID
+
 app.get('/api/usuario/:id', async (req, res) => {
   const userId = req.params.id;
 
@@ -1130,12 +1128,12 @@ app.get('/api/usuario/:id', async (req, res) => {
   }
 });
 
-// Rota POST - Login de usuário
+
 app.post('/login', async (req, res) => {
   try {
     const { email, senha } = req.body;
 
-    // Validação básica
+    
     if (!email || !senha) {
       return res.status(400).json({ error: 'Email e senha são obrigatórios' });
     }
@@ -1175,9 +1173,9 @@ app.post('/login', async (req, res) => {
             id: usuario.id_usuario,
             nome: usuario.nome,
             role: usuario.role,
-            cpf: usuario.cpf,         // Adicionado
-            email: usuario.email,      // Adicionado
-            telefone: usuario.telefone // Adicionado
+            cpf: usuario.cpf,         
+            email: usuario.email,      
+            telefone: usuario.telefone 
           }
         });
       } catch (bcryptError) {
@@ -1219,12 +1217,12 @@ const authenticateToken = (req, res, next) => {
   }
 };
 
-// Exemplo de rota protegida
+
 app.get('/protected', authenticateToken, (req, res) => {
   res.json({ message: 'Rota protegida', user: req.user });
 });
 
-// Middleware de autorização por role
+
 const authorize = (roles = []) => {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
@@ -1239,30 +1237,6 @@ const authorize = (roles = []) => {
 
 
 
-//av_foruns
-// app.post('/av_foruns', async (req, res) => {
-//   const { id_usuario, id_forum, numero_protocolo, comentario, avaliacao, horario_chegada, horario_saida } = req.body;
-
-//   if (!avaliacao || avaliacao < 1 || avaliacao > 5) {
-//     return res.status(400).json({ error: "Avaliação deve estar entre 1 e 5." });
-//   }
-//   if (!numero_protocolo || numero_protocolo.length < 5 || numero_protocolo.length > 20) {
-//     return res.status(400).json({ error: "Número de protocolo deve ter entre 5 e 20 dígitos." });
-//   }
-
-//   try {
-//     await db.promise().query(
-//       'INSERT INTO av_foruns (id_usuario, id_forum, numero_protocolo, comentario, avaliacao, horario_chegada, horario_saida) VALUES (?, ?, ?, ?, ?, ?, ?)',
-//       [id_usuario, id_forum, numero_protocolo, comentario || null, avaliacao, horario_chegada || null, horario_saida || null]
-//     );
-//     res.status(201).json({ message: 'Comentário e avaliação adicionados com sucesso.' });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ error: 'Erro ao adicionar o comentário e a avaliação.' });
-//   }
-// });
-
-// Rota POST - Adicionar avaliação ao fórum
 app.post('/av_foruns', async (req, res) => {
   const { 
     id_usuario, 
@@ -1278,7 +1252,7 @@ app.post('/av_foruns', async (req, res) => {
     horario_saida 
   } = req.body;
 
-  // Validação dos campos de avaliação
+  
   const avaliacoes = [
     av_atendimento, av_organizacao, av_digital,
     av_infraestrutura, av_seguranca
@@ -1318,7 +1292,7 @@ app.post('/av_foruns', async (req, res) => {
   }
 });
 
-// Rota GET - Calcular a média ponderada das avaliações de um fórum
+
 app.get('/foruns_avaliacao/:id_forum', async (req, res) => {
   let connection;
   try {
@@ -1338,7 +1312,7 @@ app.get('/foruns_avaliacao/:id_forum', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar todas as avaliações
+
 app.get('/av_foruns', async (req, res) => {
   let connection;
   try {
@@ -1353,7 +1327,7 @@ app.get('/av_foruns', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar avaliações de um fórum específico
+
 app.get('/av_foruns/:id_forum', async (req, res) => {
   let connection;
   try {
@@ -1369,7 +1343,7 @@ app.get('/av_foruns/:id_forum', async (req, res) => {
   }
 });
 
-// Rota DELETE - Deletar avaliações de um fórum
+
 app.delete('/foruns_avaliacao/:id_forum', async (req, res) => {
   const id_forum = req.params.id_forum;
   let connection;
@@ -1400,7 +1374,7 @@ app.delete('/av_foruns/:id_forum', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar avaliações de um fórum por usuário
+
 app.get('/foruns_avaliacao_usuario/:id_forum/:id_usuario', async (req, res) => {
   let connection;
   try {
@@ -1425,7 +1399,7 @@ app.get('/foruns_avaliacao_usuario/:id_forum/:id_usuario', async (req, res) => {
       });
     }
 
-    // Calcular a média geral das avaliações do usuário com pesos
+    
     const avaliacoesComMedia = avaliacoes.map(avaliacao => {
       const somaAvaliacoes = (
         avaliacao.av_atendimento * 5 +
@@ -1435,12 +1409,12 @@ app.get('/foruns_avaliacao_usuario/:id_forum/:id_usuario', async (req, res) => {
         avaliacao.av_seguranca * 1 
       );
 
-      const somaPesos = 5 + 4 + 3 + 2 + 1; // Soma dos pesos
+      const somaPesos = 5 + 4 + 3 + 2 + 1; 
       const media = somaAvaliacoes / somaPesos;
 
       return {
         ...avaliacao,
-        media_ponderada: parseFloat(media.toFixed(2)) // Adiciona a média calculada
+        media_ponderada: parseFloat(media.toFixed(2)) 
       };
     });
 
@@ -1464,30 +1438,8 @@ app.get('/foruns_avaliacao_usuario/:id_forum/:id_usuario', async (req, res) => {
 
 
 
-//av_tribunais
-// app.post('/av_tribunais', async (req, res) => {
-//   const { id_usuario, id_tribunal, numero_protocolo, comentario, avaliacao, horario_chegada, horario_saida } = req.body;
 
-//   if (!avaliacao || avaliacao < 1 || avaliacao > 5) {
-//     return res.status(400).json({ error: "Avaliação deve estar entre 1 e 5." });
-//   }
-//   if (!numero_protocolo || numero_protocolo.length < 5 || numero_protocolo.length > 20) {
-//     return res.status(400).json({ error: "Número de protocolo deve ter entre 5 e 20 dígitos." });
-//   }
 
-//   try {
-//     await db.promise().query(
-//       'INSERT INTO av_tribunais (id_usuario, id_tribunal, numero_protocolo, comentario, avaliacao, horario_chegada, horario_saida) VALUES (?, ?, ?, ?, ?, ?, ?)',
-//       [id_usuario, id_tribunal, numero_protocolo, comentario || null, avaliacao, horario_chegada || null, horario_saida || null]
-//     );
-//     res.status(201).json({ message: 'Comentário e avaliação adicionados com sucesso.' });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ error: 'Erro ao adicionar o comentário e a avaliação.' });
-//   }
-// });
-
-// Rota POST - Adicionar avaliação ao tribunal
 app.post('/av_tribunais', async (req, res) => {
   const { 
     id_usuario, 
@@ -1505,7 +1457,7 @@ app.post('/av_tribunais', async (req, res) => {
     horario_saida 
   } = req.body;
 
-  // Validação dos campos de avaliação
+  
   const avaliacoes = [
     av_eficiencia, av_qualidade, av_infraestrutura,
     av_tecnologia, av_gestao, av_transparencia,
@@ -1546,7 +1498,7 @@ app.post('/av_tribunais', async (req, res) => {
   }
 });
 
-// Rota GET - Calcular a média ponderada das avaliações de um tribunal
+
 app.get('/tribunais_avaliacao/:id_tribunal', async (req, res) => {
   let connection;
   try {
@@ -1566,7 +1518,7 @@ app.get('/tribunais_avaliacao/:id_tribunal', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar todas as avaliações
+
 app.get('/av_tribunais', async (req, res) => {
   let connection;
   try {
@@ -1581,7 +1533,7 @@ app.get('/av_tribunais', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar avaliações de um tribunal específico
+
 app.get('/av_tribunais/:id_tribunal', async (req, res) => {
   let connection;
   try {
@@ -1599,7 +1551,7 @@ app.get('/av_tribunais/:id_tribunal', async (req, res) => {
   }
 });
 
-// Rota DELETE - Deletar avaliações de um tribunal
+
 app.delete('/tribunais_avaliacao/:id_tribunal', async (req, res) => {
   const id_tribunal = req.params.id_tribunal;
   let connection;
@@ -1628,12 +1580,12 @@ app.delete('/av_tribunais/:id_tribunal', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar avaliações de um tribunal por usuário
+
 app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res) => {
   let connection;
   try {
     connection = await db.promise().getConnection();
-    // Buscar todas as avaliações do usuário para o tribunal
+    
     const [avaliacoes] = await connection.query(
       `SELECT 
         av_eficiencia,
@@ -1655,7 +1607,7 @@ app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res
       });
     }
 
-    // Calcular a média para cada avaliação
+    
     const avaliacoesComMedia = avaliacoes.map(avaliacao => {
       const somaAvaliacoes = (
         avaliacao.av_eficiencia * 5 +
@@ -1667,12 +1619,12 @@ app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res
         avaliacao.av_sustentabilidade * 1
       );
 
-      const somaPesos = 5 + 4 + 3 + 3 + 2 + 2 + 1; // Soma dos pesos
+      const somaPesos = 5 + 4 + 3 + 3 + 2 + 2 + 1; 
       const media = somaAvaliacoes / somaPesos;
 
       return {
         ...avaliacao,
-        media_ponderada: parseFloat(media.toFixed(2)) // Adiciona a média calculada
+        media_ponderada: parseFloat(media.toFixed(2)) 
       };
     });
 
@@ -1689,91 +1641,9 @@ app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res
 });
 
 
-// app.post('/tribunais_avaliacao_usuario', async (req, res) => {
-//   const { id_tribunal, id_usuario, av_eficiencia, av_qualidade, av_infraestrutura, av_tecnologia, av_gestao, av_transparencia, av_sustentabilidade } = req.body;
-
-//   try {
-//     // Calcular a média ponderada
-//     const somaAvaliacoes = (
-//       av_eficiencia * 5 +
-//       av_qualidade * 4 +
-//       av_infraestrutura * 3 +
-//       av_tecnologia * 3 +
-//       av_gestao * 2 +
-//       av_transparencia * 2 +
-//       av_sustentabilidade * 1
-//     );
-//     const somaPesos = 5 + 4 + 3 + 3 + 2 + 2 + 1;
-//     const mediaGeral = somaAvaliacoes / somaPesos;
-
-//     // Inserir nova avaliação com a média calculada
-//     await db.promise().query(
-//       `INSERT INTO av_tribunais (id_tribunal, id_usuario, av_eficiencia, av_qualidade, av_infraestrutura, av_tecnologia, av_gestao, av_transparencia, av_sustentabilidade, media_geral, data_criacao)
-//       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-//       [id_tribunal, id_usuario, av_eficiencia, av_qualidade, av_infraestrutura, av_tecnologia, av_gestao, av_transparencia, av_sustentabilidade, parseFloat(mediaGeral.toFixed(2))]
-//     );
-
-//     res.status(201).json({ message: 'Avaliação salva com sucesso!', media_geral: parseFloat(mediaGeral.toFixed(2)) });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ error: 'Erro ao salvar avaliação do usuário.' });
-//   }
-// });
-
-// app.get('/tribunais_avaliacao_usuario/:id_tribunal/:id_usuario', async (req, res) => {
-//   try {
-//     const [avaliacoes] = await db.promise().query(
-//       `SELECT media_geral 
-//        FROM av_tribunais 
-//        WHERE id_tribunal = ? AND id_usuario = ?
-//        ORDER BY data_criacao DESC
-//        LIMIT 1`,
-//       [req.params.id_tribunal, req.params.id_usuario]
-//     );
-
-//     if (avaliacoes.length === 0) {
-//       return res.json({
-//         media_geral: null,
-//         message: "Usuário ainda não avaliou este tribunal"
-//       });
-//     }
-
-//     res.json({
-//       media_geral: avaliacoes[0].media_geral
-//     });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ error: 'Erro ao buscar média de avaliações do usuário.' });
-//   }
-// });
 
 
 
-
-//juiz
-// app.post('/av_juiz', async (req, res) => {
-//   const { id_usuario, id_juiz, numero_protocolo, comentario, avaliacao, horario_chegada, horario_saida } = req.body;
-
-//   if (!avaliacao || avaliacao < 1 || avaliacao > 5) {
-//     return res.status(400).json({ error: "Avaliação deve estar entre 1 e 5." });
-//   }
-//   if (!numero_protocolo || numero_protocolo.length < 5 || numero_protocolo.length > 20) {
-//     return res.status(400).json({ error: "Número de protocolo deve ter entre 5 e 20 dígitos." });
-//   }
-
-//   try {
-//     await db.promise().query(
-//       'INSERT INTO av_juiz (id_usuario, id_juiz, numero_protocolo, comentario, avaliacao, horario_chegada, horario_saida) VALUES (?, ?, ?, ?, ?, ?, ?)',
-//       [id_usuario, id_juiz, numero_protocolo, comentario || null, avaliacao, horario_chegada || null, horario_saida || null]
-//     );
-//     res.status(201).json({ message: 'Comentário e avaliação adicionados com sucesso.' });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ error: 'Erro ao adicionar o comentário e a avaliação.' });
-//   }
-// });
-
-// Rota POST - Adicionar avaliação do juiz
 app.post('/av_juiz', async (req, res) => {
   const { 
     id_usuario, 
@@ -1790,7 +1660,7 @@ app.post('/av_juiz', async (req, res) => {
     data_audiencia 
   } = req.body;
 
-  // Validação dos campos de avaliação
+  
   const avaliacoes = [
     av_produtividade,
     av_fundamentacao,
@@ -1833,7 +1703,7 @@ app.post('/av_juiz', async (req, res) => {
   }
 });
 
-// Rota GET - Calcular a média ponderada das avaliações de um juiz
+
 app.get('/juiz_avaliacao/:id_juiz', async (req, res) => {
   let connection;
   try {
@@ -1853,7 +1723,7 @@ app.get('/juiz_avaliacao/:id_juiz', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar avaliações de um juiz específico
+
 app.get('/av_juiz/:id_juiz', async (req, res) => {
   let connection;
   try {
@@ -1871,7 +1741,7 @@ app.get('/av_juiz/:id_juiz', async (req, res) => {
   }
 });
 
-// Rota DELETE - Deletar avaliações de um juiz
+
 app.delete('/juiz_avaliacao/:id_juiz', async (req, res) => {
   const id_juiz = req.params.id_juiz;
   let connection;
@@ -1887,7 +1757,7 @@ app.delete('/juiz_avaliacao/:id_juiz', async (req, res) => {
   }
 });
 
-// Rota DELETE - Deletar avaliações de um juiz (rota redundante)
+
 app.delete('/av_juiz/:id_juiz', async (req, res) => {
   const id_juiz = req.params.id_juiz;
   let connection;
@@ -1903,12 +1773,12 @@ app.delete('/av_juiz/:id_juiz', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar avaliações de um juiz por usuário
+
 app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
   let connection;
   try {
     connection = await db.promise().getConnection();
-    // Buscar as avaliações individuais do usuário
+    
     const [avaliacoes] = await connection.query(
       `SELECT 
         av_produtividade,    
@@ -1929,7 +1799,7 @@ app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
       });
     }
 
-    // Calcular a média geral das avaliações do usuário com pesos
+    
     const avaliacoesComMedia = avaliacoes.map(avaliacao => {
       const somaAvaliacoes = (
         avaliacao.av_produtividade * 5 +
@@ -1939,12 +1809,12 @@ app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
         avaliacao.av_atendimento * 1 
       );
 
-      const somaPesos = 5 + 4 + 3 + 2 + 1; // Soma dos pesos
+      const somaPesos = 5 + 4 + 3 + 2 + 1; 
       const media = somaAvaliacoes / somaPesos;
 
       return {
         ...avaliacao,
-        media_ponderada: parseFloat(media.toFixed(2)) // Adiciona a média calculada
+        media_ponderada: parseFloat(media.toFixed(2)) 
       };
     });
 
@@ -1961,47 +1831,9 @@ app.get('/juiz_avaliacao_usuario/:id_juiz/:id_usuario', async (req, res) => {
 });
 
 
-//mediador
-// app.post('/av_mediador', async (req, res) => {
-//   const { id_usuario, id_mediador, comentario, avaliacao, horario_chegada, horario_saida } = req.body;
 
-//   if (!avaliacao || avaliacao < 1 || avaliacao > 5) {
-//     return res.status(400).json({ error: "Avaliação deve estar entre 1 e 5." });
-//   }
 
-//   try {
-//     await db.promise().query(
-//       'INSERT INTO av_mediador (id_usuario, id_mediador, comentario, avaliacao, horario_chegada, horario_saida) VALUES (?, ?, ?, ?, ?, ?)',
-//       [id_usuario, id_mediador, comentario || null, avaliacao, horario_chegada || null, horario_saida || null]
-//     );
-//     res.status(201).json({ message: 'Comentário e avaliação adicionados com sucesso.' });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ error: 'Erro ao adicionar o comentário e a avaliação.' });
-//   }
-// });
 
-// app.get('/mediador_avaliacao/:id_mediador', async (req, res) => {
-//   try {
-//     const [resultado] = await db.promise().query(
-//       'SELECT ROUND(AVG(avaliacao),2) AS media_avaliacao FROM av_mediador WHERE id_mediador = ?',
-//       [req.params.id_mediador]
-//     );
-//     res.json({ media_avaliacao: resultado[0].media_avaliacao || 0 });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ error: 'Erro ao calcular a média de avaliações.' });
-//   }
-// });
-// app.get('/av_mediador', (req, res) => {
-//   const sql = 'SELECT * FROM av_mediador';
-//   db.query(sql, (err, result) => {
-//     if (err) throw err;
-//     res.send(result);
-//   });
-// });
-
-// Rota POST - Adicionar avaliação do mediador
 app.post('/av_mediador', async (req, res) => {
   const { 
     id_usuario, 
@@ -2018,7 +1850,7 @@ app.post('/av_mediador', async (req, res) => {
     data_criacao 
   } = req.body;
 
-  // Validação dos campos de avaliação
+  
   const avaliacoes = [
     av_satisfacao,
     av_imparcialidade,
@@ -2059,7 +1891,7 @@ app.post('/av_mediador', async (req, res) => {
   }
 });
 
-// Rota GET - Calcular a média ponderada das avaliações de um mediador
+
 app.get('/mediador_avaliacao/:id_mediador', async (req, res) => {
   let connection;
   try {
@@ -2079,7 +1911,7 @@ app.get('/mediador_avaliacao/:id_mediador', async (req, res) => {
   }
 });
 
-// Rota DELETE - Deletar avaliações de um mediador
+
 app.delete('/mediador_avaliacao/:id_mediador', async (req, res) => {
   const id_mediador = req.params.id_mediador;
   let connection;
@@ -2095,7 +1927,7 @@ app.delete('/mediador_avaliacao/:id_mediador', async (req, res) => {
   }
 });
 
-// Rota DELETE - Deletar avaliações de um mediador (rota redundante)
+
 app.delete('/av_mediador/:id_mediador', async (req, res) => {
   const id_mediador = req.params.id_mediador;
   let connection;
@@ -2111,12 +1943,12 @@ app.delete('/av_mediador/:id_mediador', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar avaliações de um mediador por usuário
+
 app.get('/mediador_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res) => {
   let connection;
   try {
     connection = await db.promise().getConnection();
-    // Buscar as avaliações individuais do usuário
+    
     const [avaliacoes] = await connection.query(
       `SELECT 
         av_satisfacao,
@@ -2137,7 +1969,7 @@ app.get('/mediador_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res)
       });
     }
 
-    // Calcular a média geral das avaliações do usuário com pesos
+    
     const avaliacoesComMedia = avaliacoes.map(avaliacao => {
       const somaAvaliacoes = (
         avaliacao.av_satisfacao * 5 +
@@ -2147,12 +1979,12 @@ app.get('/mediador_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res)
         avaliacao.av_organizacao * 1 
       );
 
-      const somaPesos = 5 + 4 + 3 + 2 + 1; // Soma dos pesos
+      const somaPesos = 5 + 4 + 3 + 2 + 1; 
       const media = somaAvaliacoes / somaPesos;
 
       return {
         ...avaliacao,
-        media_ponderada: parseFloat(media.toFixed(2)) // Adiciona a média calculada
+        media_ponderada: parseFloat(media.toFixed(2)) 
       };
     });
 
@@ -2168,7 +2000,7 @@ app.get('/mediador_avaliacao_usuario/:id_mediador/:id_usuario', async (req, res)
   }
 });
 
-// Rota GET - Buscar todas as avaliações de um mediador
+
 app.get('/av_mediador/:id_mediador', async (req, res) => {
   let connection;
   try {
@@ -2187,27 +2019,9 @@ app.get('/av_mediador/:id_mediador', async (req, res) => {
 });
 
 
-// app.delete('/mediador_avaliacao/:id_mediador', (req, res) => {
-//   const id_mediador = req.params.id_mediador;
-//   db.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id_mediador], (err, result) => {
-//     if (err) {
-//       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
-//     }
-//     res.send({ message: 'Avaliações deletadas com sucesso' });
-//   });
-// });
-// app.delete('/av_mediador/:id_mediador', (req, res) => {
-//   const id_mediador = req.params.id_mediador;
-//   db.query('DELETE FROM av_mediador WHERE id_mediador = ?', [id_mediador], (err, result) => {
-//     if (err) {
-//       return res.status(500).send({ error: 'Erro ao deletar avaliações' });
-//     }
-//     res.send({ message: 'Avaliações deletadas com sucesso' });
-//   });
-// });
 
-//advocacia
-// Rota POST - Adicionar avaliação da advocacia
+
+
 app.post('/av_advocacia', async (req, res) => {
   const { 
     id_usuario, 
@@ -2223,7 +2037,7 @@ app.post('/av_advocacia', async (req, res) => {
     horario_saida 
   } = req.body;
 
-  // Validação dos campos de avaliação
+  
   const avaliacoes = [
     av_eficiencia_processual,
     av_qualidade_tecnica,
@@ -2264,7 +2078,7 @@ app.post('/av_advocacia', async (req, res) => {
   }
 });
 
-// Rota GET - Calcular a média ponderada das avaliações de uma advocacia
+
 app.get('/advocacia_avaliacao/:id_advocacia', async (req, res) => {
   let connection;
   try {
@@ -2284,7 +2098,7 @@ app.get('/advocacia_avaliacao/:id_advocacia', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar todas as avaliações de advocacia
+
 app.get('/av_advocacia', async (req, res) => {
   let connection;
   try {
@@ -2299,7 +2113,7 @@ app.get('/av_advocacia', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar avaliação de uma advocacia por ID
+
 app.get('/av_advocacia/:id_advocacia', async (req, res) => {
   let connection;
   try {
@@ -2317,7 +2131,7 @@ app.get('/av_advocacia/:id_advocacia', async (req, res) => {
   }
 });
 
-// Rota DELETE - Deletar avaliações de uma advocacia
+
 app.delete('/advocacia_avaliacao/:id_advocacia', async (req, res) => {
   const id_advocacia = req.params.id_advocacia;
   let connection;
@@ -2333,7 +2147,7 @@ app.delete('/advocacia_avaliacao/:id_advocacia', async (req, res) => {
   }
 });
 
-// Rota DELETE - Deletar avaliações de uma advocacia (rota redundante)
+
 app.delete('/av_advocacia/:id_advocacia', async (req, res) => {
   const id_advocacia = req.params.id_advocacia;
   let connection;
@@ -2349,12 +2163,12 @@ app.delete('/av_advocacia/:id_advocacia', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar avaliações de uma advocacia feitas por um usuário
+
 app.get('/advocacia_avaliacao_usuario/:id_advocacia/:id_usuario', async (req, res) => {
   let connection;
   try {
     connection = await db.promise().getConnection();
-    // Buscar as avaliações individuais do usuário
+    
     const [avaliacoes] = await connection.query(
       `SELECT 
         av_eficiencia_processual,
@@ -2375,7 +2189,7 @@ app.get('/advocacia_avaliacao_usuario/:id_advocacia/:id_usuario', async (req, re
       });
     }
 
-    // Calcular a média geral das avaliações do usuário com pesos
+    
     const avaliacoesComMedia = avaliacoes.map(avaliacao => {
       const somaAvaliacoes = (
         avaliacao.av_eficiencia_processual * 5 +
@@ -2385,12 +2199,12 @@ app.get('/advocacia_avaliacao_usuario/:id_advocacia/:id_usuario', async (req, re
         avaliacao.av_inovacao * 1 
       );
 
-      const somaPesos = 5 + 4 + 3 + 2 + 1; // Soma dos pesos
+      const somaPesos = 5 + 4 + 3 + 2 + 1; 
       const media = somaAvaliacoes / somaPesos;
 
       return {
         ...avaliacao,
-        media_ponderada: parseFloat(media.toFixed(2)) // Adiciona a média calculada
+        media_ponderada: parseFloat(media.toFixed(2)) 
       };
     });
 
@@ -2407,8 +2221,7 @@ app.get('/advocacia_avaliacao_usuario/:id_advocacia/:id_usuario', async (req, re
 });
 
 
-//portal
-// Rota POST - Adicionar avaliação do portal
+
 app.post('/av_portal', async (req, res) => {
   const {
     id_usuario,
@@ -2421,7 +2234,7 @@ app.post('/av_portal', async (req, res) => {
     av_acessibilidade
   } = req.body;
 
-  // Validação dos campos de avaliação
+
   const avaliacoes = [
     av_seguranca_sistema,
     av_usabilidade,
@@ -2458,7 +2271,7 @@ app.post('/av_portal', async (req, res) => {
   }
 });
 
-// Rota GET - Calcular a média ponderada das avaliações de um portal
+
 app.get('/portal_avaliacao/:id_portal', async (req, res) => {
   let connection;
   try {
@@ -2478,7 +2291,7 @@ app.get('/portal_avaliacao/:id_portal', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar todas as avaliações do portal
+
 app.get('/av_portal', async (req, res) => {
   let connection;
   try {
@@ -2493,7 +2306,7 @@ app.get('/av_portal', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar avaliações de um portal específico
+
 app.get('/av_portal/:id_portal', async (req, res) => {
   let connection;
   try {
@@ -2511,7 +2324,7 @@ app.get('/av_portal/:id_portal', async (req, res) => {
   }
 });
 
-// Rota DELETE - Deletar avaliações de um portal
+
 app.delete('/portal_avaliacao/:id_portal', async (req, res) => {
   const id_portal = req.params.id_portal;
   let connection;
@@ -2527,7 +2340,7 @@ app.delete('/portal_avaliacao/:id_portal', async (req, res) => {
   }
 });
 
-// Rota DELETE - Deletar avaliações de um portal (rota redundante)
+
 app.delete('/av_portal/:id_portal', async (req, res) => {
   const id_portal = req.params.id_portal;
   let connection;
@@ -2543,12 +2356,12 @@ app.delete('/av_portal/:id_portal', async (req, res) => {
   }
 });
 
-// Rota GET - Buscar avaliações de um portal feitas por um usuário específico
+
 app.get('/portal_avaliacao_usuario/:id_portal/:id_usuario', async (req, res) => {
   let connection;
   try {
     connection = await db.promise().getConnection();
-    // Buscar as avaliações individuais do usuário
+  
     const [avaliacoes] = await connection.query(
       `SELECT 
         av_seguranca_sistema,
@@ -2569,7 +2382,7 @@ app.get('/portal_avaliacao_usuario/:id_portal/:id_usuario', async (req, res) => 
       });
     }
 
-    // Calcular a média geral das avaliações do usuário com pesos
+   
     const avaliacoesComMedia = avaliacoes.map(avaliacao => {
       const somaAvaliacoes = (
         avaliacao.av_seguranca_sistema * 5 +
@@ -2579,12 +2392,12 @@ app.get('/portal_avaliacao_usuario/:id_portal/:id_usuario', async (req, res) => 
         avaliacao.av_acessibilidade * 1 
       );
 
-      const somaPesos = 5 + 4 + 3 + 2 + 1; // Soma dos pesos
+      const somaPesos = 5 + 4 + 3 + 2 + 1; 
       const media = somaAvaliacoes / somaPesos;
 
       return {
         ...avaliacao,
-        media_ponderada: parseFloat(media.toFixed(2)) // Adiciona a média calculada
+        media_ponderada: parseFloat(media.toFixed(2)) 
       };
     });
 
@@ -2618,7 +2431,7 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
     console.log(`Servidor backend rodando na porta ${PORT}`);
 });
-// Encerrar o pool de conexões ao desligar o servidor
+
 process.on('SIGTERM', () => {
   db.end()
     .then(() => {
